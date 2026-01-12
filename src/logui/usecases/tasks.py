@@ -324,7 +324,14 @@ def create_subtask(
     *,
     now: datetime | None = None,
 ) -> Task:
-    root, parent, _pp = _find_root_and_task(repo, parent_id)
+    root, requested_parent, grandparent = _find_root_and_task(repo, parent_id)
+
+    # Redirect: if trying to create a subtask of a subtask,
+    # create a sibling subtask instead
+    if grandparent is not None:
+        parent = grandparent
+    else:
+        parent = requested_parent
 
     siblings = sorted(parent.subtasks, key=lambda t: (t.order, t.created_at))
 
