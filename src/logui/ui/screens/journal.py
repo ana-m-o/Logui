@@ -124,14 +124,22 @@ class JournalEditorScreen(ModalScreen[JournalEditorResult | None]):
         error = self.query_one("#journal_editor_error", Static)
         error.update("")
 
-        day_raw = (self.query_one("#journal_day", Input).value or "").strip()
+        # Clear all error classes first
+        for input_widget in self.query(Input):
+            input_widget.remove_class("error")
+
+        journal_day_input = self.query_one("#journal_day", Input)
+        day_raw = (journal_day_input.value or "").strip()
+        
         if not day_raw:
+            journal_day_input.add_class("error")
             error.update("[red]• Date cannot be empty[/red]")
             return
 
         try:
             parsed_day = parse_date_flexible(day_raw, today=today_local())
         except Exception:  # noqa: BLE001
+            journal_day_input.add_class("error")
             error.update(
                 "[red]• Invalid date. Allowed formats: YYYY-MM-DD (2025-12-29), "
                 "DD/MM/YYYY (29/12/2025), DD/MM (5/7), DD/MM/YY (3/6/26), "

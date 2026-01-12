@@ -146,3 +146,49 @@ def test_start_time_change_clears_autofilled_end_day_when_rollover_no_longer_nee
     assert res.end_time_value == "23:00"
     assert res.end_day_value == "2025-12-25"
     assert res.end_day_autofilled is True
+
+
+def test_end_time_after_start_time_does_not_autofill_end_day():
+    """Test that when end_time >= start_time, end_day is NOT auto-filled."""
+    today = date(2025, 12, 25)
+    start_day = date(2025, 12, 25)
+
+    # User enters end_time that is after start_time (same day)
+    res = _sync_end_fields_logic(
+        changed_id="end_time",
+        start_day=start_day,
+        start_time_raw="10:00",
+        end_day_raw="",
+        end_time_raw="14:00",
+        duration_minutes=None,
+        end_day_autofilled=False,
+        today=today,
+    )
+
+    # end_day should remain empty (not auto-filled)
+    assert res.end_day_value is None
+    assert res.duration_minutes == 240  # 4 hours
+    assert res.end_day_autofilled is False
+
+
+def test_end_time_before_start_time_autofills_end_day_plus_one():
+    """Test that when end_time < start_time, end_day IS auto-filled with +1 day."""
+    today = date(2025, 12, 25)
+    start_day = date(2025, 12, 25)
+
+    # User enters end_time that is before start_time (implies next day)
+    res = _sync_end_fields_logic(
+        changed_id="end_time",
+        start_day=start_day,
+        start_time_raw="22:00",
+        end_day_raw="",
+        end_time_raw="02:00",
+        duration_minutes=None,
+        end_day_autofilled=False,
+        today=today,
+    )
+
+    # end_day should be auto-filled with next day
+    assert res.end_day_value == "2025-12-26"
+    assert res.duration_minutes == 240  # 4 hours (22:00 -> 02:00 next day)
+    assert res.end_day_autofilled is True

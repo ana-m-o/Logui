@@ -103,6 +103,10 @@ ListView {
 
         Input {
             border: solid $accent;
+
+            &.error {
+                border: solid $error;
+            }
         }
     }
 

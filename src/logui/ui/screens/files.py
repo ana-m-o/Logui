@@ -65,8 +65,16 @@ class NewFileScreen(ModalScreen[NewFileResult | None]):
     def _submit(self) -> None:
         error = self.query_one("#new_file_error", Static)
         error.update("")
-        name = (self.query_one("#new_file_name", Input).value or "").strip()
+        
+        # Clear all error classes first
+        for input_widget in self.query(Input):
+            input_widget.remove_class("error")
+        
+        new_file_input = self.query_one("#new_file_name", Input)
+        name = (new_file_input.value or "").strip()
+        
         if not name:
+            new_file_input.add_class("error")
             error.update("[red]• El nombre no puede estar vacío[/red]")
             return
         self.dismiss(NewFileResult(filename=name))

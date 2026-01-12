@@ -183,17 +183,27 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
         error = self.query_one("#task_form_error", Static)
         error.update("")
 
-        title = (self.query_one("#title", Input).value or "").strip()
+        # Clear all error classes first
+        for input_widget in self.query(Input):
+            input_widget.remove_class("error")
+
+        title_input = self.query_one("#title", Input)
+        due_date_input = self.query_one("#due_date", Input)
+        link_url_input = self.query_one("#link_url", Input)
+        link_text_input = self.query_one("#link_text", Input)
+
+        title = (title_input.value or "").strip()
         status_raw = self.query_one("#status", Select).value
         priority = bool(self.query_one("#priority", Checkbox).value)
 
-        due_raw = (self.query_one("#due_date", Input).value or "").strip()
-        link_url = (self.query_one("#link_url", Input).value or "").strip()
-        link_text = (self.query_one("#link_text", Input).value or "").strip()
+        due_raw = (due_date_input.value or "").strip()
+        link_url = (link_url_input.value or "").strip()
+        link_text = (link_text_input.value or "").strip()
 
         errors: list[str] = []
 
         if not title:
+            title_input.add_class("error")
             errors.append("Title cannot be empty")
 
         status: TaskStatus | None = None
@@ -210,6 +220,7 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
             try:
                 due_date = parse_date_flexible(due_raw, today=today_local())
             except Exception:  # noqa: BLE001
+                due_date_input.add_class("error")
                 errors.append(
                     "Invalid date. Allowed formats: YYYY-MM-DD (2025-12-25), "
                     "DD/MM/YYYY (25/12/2025), DD/MM (5/9), DD/MM/YY (3/6/26), "
@@ -217,12 +228,14 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
                 )
 
         if link_text and not link_url:
+            link_url_input.add_class("error")
             errors.append("Link text requires a URL")
 
         if link_url:
             try:
                 TaskLink.create(link_url, text=link_text or None)
             except ValidationError as e:
+                link_url_input.add_class("error")
                 errors.append(str(e))
 
         if errors:

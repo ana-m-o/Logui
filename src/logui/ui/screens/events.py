@@ -367,19 +367,22 @@ def _build_start_day_hint_text(
 
     # If date is empty (default = today) and the user enters a past time,
     # show a warning in the same style as past-date warnings.
+    # Only check this if today parameter matches the actual current date.
     if start_time_s and not start_day_s and initial_start_day == today:
-        try:
-            start_t = parse_time_flexible(start_time_s)
-        except Exception:  # noqa: BLE001
-            start_t = None
-        if start_t is not None:
-            now = datetime.now().time()
-            now_min = time(now.hour, now.minute)
-            if start_t < now_min:
-                return (
-                    f"[dim]{fmt_day_full_friendly(today)} {start_t.strftime('%H:%M')} "
-                    f"(is a past time)[/dim]"
-                )
+        actual_today = datetime.now().date()
+        if today == actual_today:
+            try:
+                start_t = parse_time_flexible(start_time_s)
+            except Exception:  # noqa: BLE001
+                start_t = None
+            if start_t is not None:
+                now = datetime.now().time()
+                now_min = time(now.hour, now.minute)
+                if start_t < now_min:
+                    return (
+                        f"[dim]{fmt_day_full_friendly(today)} {start_t.strftime('%H:%M')} "
+                        f"(is a past time)[/dim]"
+                    )
 
     if start_day_s and effective_day < today:
         return f"[dim]{fmt_day_full_friendly(effective_day)}{suffix} (is a past date)[/dim]"
@@ -745,13 +748,24 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
         error = self.query_one("#form_error", Static)
         error.update("")
 
-        start_day_raw = self.query_one("#start_day", Input).value.strip()
-        title = self.query_one("#title", Input).value.strip()
-        start_raw = self.query_one("#start_time", Input).value.strip()
-        end_day_raw = self.query_one("#end_day", Input).value.strip()
-        end_raw = self.query_one("#end_time", Input).value.strip()
+        # Clear all error classes first
+        for input_widget in self.query(Input):
+            input_widget.remove_class("error")
+
+        start_day_input = self.query_one("#start_day", Input)
+        title_input = self.query_one("#title", Input)
+        start_time_input = self.query_one("#start_time", Input)
+        end_day_input = self.query_one("#end_day", Input)
+        end_time_input = self.query_one("#end_time", Input)
+        nmb_input = self.query_one("#notify_minutes_before", Input)
+
+        start_day_raw = start_day_input.value.strip()
+        title = title_input.value.strip()
+        start_raw = start_time_input.value.strip()
+        end_day_raw = end_day_input.value.strip()
+        end_raw = end_time_input.value.strip()
         notify = self.query_one("#notify", Checkbox).value
-        nmb_raw = self.query_one("#notify_minutes_before", Input).value.strip()
+        nmb_raw = nmb_input.value.strip()
 
         errors: list[str] = []
 
@@ -764,6 +778,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
                 start_day = parse_date_flexible(start_day_raw, today=today)
             except Exception:  # noqa: BLE001
                 start_day = self._initial.start_day
+                start_day_input.add_class("error")
                 errors.append(
                     "Invalid date. Allowed formats: YYYY-MM-DD (2025-12-25), "
                     "DD/MM/YYYY (25/12/2025), DD/MM (5/9, uses current year), "
@@ -773,6 +788,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
                 )
 
         if not title:
+            title_input.add_class("error")
             errors.append("Title cannot be empty")
 
         start_t: time | None = None
@@ -780,6 +796,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
             try:
                 start_t = parse_time_flexible(start_raw)
             except Exception:  # noqa: BLE001
+                start_time_input.add_class("error")
                 errors.append(
                     "Invalid start time. Allowed formats: 9, 9:30, 09:00. "
                     "Empty = all day"
@@ -790,6 +807,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
             try:
                 end_t = parse_time_flexible(end_raw)
             except Exception:  # noqa: BLE001
+                end_time_input.add_class("error")
                 errors.append(
                     "Invalid end time. Allowed formats: 9, 9:30, 09:00. "
                     "Empty = +1h if there is a start"
@@ -800,6 +818,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
             try:
                 end_day = parse_date_flexible(end_day_raw, today=today)
             except Exception:  # noqa: BLE001
+                end_day_input.add_class("error")
                 errors.append(
                     "Invalid end date. Use the same formats as Start. "
                     "Empty = same day. Multi-day: enter a later date (e.g. 30/1/26)"
@@ -808,6 +827,8 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
         end_day_offset = 0
 
         if start_t is None and end_t is not None:
+            start_time_input.add_class("error")
+            end_time_input.add_class("error")
             errors.append(
                 "End time requires a start time. Define start or leave end empty"
             )
@@ -835,6 +856,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
                     end_day_offset = (end_day - start_day).days
 
         if end_day_offset < 0:
+            end_day_input.add_class("error")
             errors.append("End date cannot be before start date")
 
         notify_minutes_before: int | None
@@ -845,18 +867,22 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
                 notify_minutes_before = int(nmb_raw)
             except Exception:  # noqa: BLE001
                 notify_minutes_before = None
+                nmb_input.add_class("error")
                 errors.append(
                     "Invalid minutes before. Use an integer (e.g.: 0, 5, 15). "
                     "Empty = at event time"
                 )
 
         if notify_minutes_before is not None and notify_minutes_before < 0:
+            nmb_input.add_class("error")
             errors.append("Minutes before cannot be negative. Use 0 or more")
 
         if start_t is not None and end_t is not None and end_day_offset >= 0:
             start_dt = datetime.combine(start_day, start_t)
             end_dt = datetime.combine(start_day, end_t) + timedelta(days=end_day_offset)
             if end_dt < start_dt:
+                end_time_input.add_class("error")
+                end_day_input.add_class("error")
                 errors.append(
                     "End time must be >= start time. If it crosses midnight, "
                     "use a later end date or leave end empty"
