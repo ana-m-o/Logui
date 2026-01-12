@@ -4,7 +4,6 @@ from logui.infrastructure.repositories.config_repo_json import JsonConfigReposit
 from logui.usecases.config import (
     set_all_day_notify_time,
     set_default_notify_minutes_before,
-    set_encryption_enabled,
     update_editor,
 )
 
@@ -14,7 +13,6 @@ def test_config_repo_load_defaults_and_save_roundtrip(tmp_path) -> None:
 
     cfg = repo.load()
     assert cfg.editor.command
-    assert cfg.encryption.enabled is False
     assert cfg.notifications.all_day_notify_time
     assert cfg.notifications.default_minutes_before == 0
 
@@ -27,9 +25,6 @@ def test_config_repo_load_defaults_and_save_roundtrip(tmp_path) -> None:
     cfg2b = update_editor(repo=repo, command="vim", args_text="")
     assert cfg2b.notifications.all_day_notify_time == "08:30"
 
-    cfg3 = set_encryption_enabled(repo=repo, enabled=True)
-    assert cfg3.encryption.enabled is True
-
     cfg4 = set_all_day_notify_time(repo=repo, hhmm="08:30")
     assert cfg4.notifications.all_day_notify_time == "08:30"
 
@@ -38,6 +33,5 @@ def test_config_repo_load_defaults_and_save_roundtrip(tmp_path) -> None:
 
     reloaded = repo.load()
     assert reloaded.editor.command == "vim"
-    assert reloaded.encryption.enabled is True
     assert reloaded.notifications.all_day_notify_time == "08:30"
     assert reloaded.notifications.default_minutes_before == 15

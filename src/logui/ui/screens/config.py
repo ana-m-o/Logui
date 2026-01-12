@@ -14,7 +14,6 @@ from logui.domain.ports.config import ConfigRepository
 from logui.usecases.config import (
     set_all_day_notify_time,
     set_default_notify_minutes_before,
-    set_encryption_enabled,
     update_editor,
 )
 
@@ -27,8 +26,8 @@ class EditorFormResult:
 
 class EditorConfigScreen(ModalScreen[EditorFormResult | None]):
     BINDINGS = [
-        Binding("enter", "submit", "Guardar", show=False),
-        Binding("escape", "cancel", "Cancelar", show=False),
+        Binding("enter", "submit", "Save", show=False),
+        Binding("escape", "cancel", "Cancel", show=False),
     ]
 
     def __init__(self, *, initial_command: str, initial_args_text: str):
@@ -39,23 +38,23 @@ class EditorConfigScreen(ModalScreen[EditorFormResult | None]):
 
     def compose(self) -> ComposeResult:
         yield Container(
-            Label("Editor externo", classes="modal_title"),
+            Label("External editor", classes="modal_title"),
             Static(
-                "enter guarda • esc cancela",
+                "enter save • esc cancel",
                 classes="modal_help",
                 markup=False,
             ),
-            Label("Comando"),
+            Label("Command"),
             Input(value=self._initial_command, id="editor_command"),
-            Label("Args (opcional)"),
+            Label("Args (optional)"),
             Input(
                 value=self._initial_args_text,
                 id="editor_args",
-                placeholder="Ej: --wait {file}  (si no pones {file}, se añade al final)",
+                placeholder="e.g.: --wait {file}  (if you don't add {file}, it's appended)",
             ),
             Static(
-                "Sugerencias: vim, nvim, nano, emacs, code\n"
-                "Nota: el fallback es nano si el comando está vacío",
+                "Suggestions: vim, nvim, nano, emacs, code\n"
+                "Note: fallback is nano if command is empty",
                 classes="modal_help_top",
                 markup=False,
             ),
@@ -68,6 +67,9 @@ class EditorConfigScreen(ModalScreen[EditorFormResult | None]):
         args = self.query_one("#editor_args", Input).value
         self.dismiss(EditorFormResult(command=cmd, args_text=args))
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.action_submit()
+
     def action_cancel(self) -> None:
         self.dismiss(None)
 
@@ -79,8 +81,8 @@ class TextFormResult:
 
 class SimpleTextInputScreen(ModalScreen[TextFormResult | None]):
     BINDINGS = [
-        Binding("enter", "submit", "Guardar", show=False),
-        Binding("escape", "cancel", "Cancelar", show=False),
+        Binding("enter", "submit", "Save", show=False),
+        Binding("escape", "cancel", "Cancel", show=False),
     ]
 
     def __init__(self, *, title: str, label: str, initial: str, placeholder: str = ""):
@@ -105,13 +107,16 @@ class SimpleTextInputScreen(ModalScreen[TextFormResult | None]):
         val = self.query_one("#value", Input).value
         self.dismiss(TextFormResult(value=val))
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.action_submit()
+
     def action_cancel(self) -> None:
         self.dismiss(None)
 
 
 class _ConfigRow(ListItem):
     def __init__(self, *, key: str, title: str, value: str):
-        super().__init__(id=f"cfg_{key}")
+        super().__init__()
         self.key = key
         self._title = title
         self._value = value
@@ -151,7 +156,6 @@ class ConfigPane(Container):
                 Label("Help"),
                 Static(
                     "- No system notifications: all is in-app (toast + sound).\n"
-                    "- Encryption (when enabled) applies on restart.\n"
                     "- In modals: enter confirm • esc cancel.",
                     markup=False,
                 ),
@@ -176,8 +180,7 @@ class ConfigPane(Container):
 
         editor_cmd = (self._config.editor.command or "nano").strip() or "nano"
         args = self._config.editor.normalized_args()
-        args_text = " ".join(args) if args else "(sin args)"
-        enc_text = "activado" if self._config.encryption.enabled else "desactivado"
+        args_text = " ".join(args) if args else "(no args)"
         all_day = (self._config.notifications.all_day_notify_time or "09:00").strip() or "09:00"
         default_mins = int(self._config.notifications.default_minutes_before)
 
@@ -194,7 +197,6 @@ class ConfigPane(Container):
                 value=str(default_mins),
             )
         )
-        lv.append(_ConfigRow(key="encryption", title="Encryption", value=enc_text))
 
     def on_click(self, event: events.Click) -> None:
         if event.chain < 2 or event.button != 1:
@@ -241,8 +243,8 @@ class ConfigPane(Container):
                 if res is None:
                     return
                 update_editor(repo=self._repo, command=res.command, args_text=res.args_text)
-                self._notify("Editor actualizado")
-                self._refresh()
+                self._notify("Editor updated")
+                self.call_later(self._refresh)
 
             self.app.push_screen(
                 EditorConfigScreen(initial_command=editor_cmd, initial_args_text=args_text),
@@ -250,13 +252,6 @@ class ConfigPane(Container):
             )
             return
 
-        if key == "encryption":
-            new_value = not bool(self._config.encryption.enabled)
-            set_encryption_enabled(repo=self._repo, enabled=new_value)
-            state = "activado" if new_value else "desactivado"
-            self._notify(f"Cifrado {state} (se aplicará al reiniciar)")
-            self._refresh()
-            return
 
         if key == "all_day_notify_time":
             initial = (self._config.notifications.all_day_notify_time or "09:00").strip() or "09:00"
@@ -266,17 +261,17 @@ class ConfigPane(Container):
                     return
                 before = self._config.notifications.all_day_notify_time
                 set_all_day_notify_time(repo=self._repo, hhmm=res.value)
-                self._refresh()
-                after = self._config.notifications.all_day_notify_time
-                if after != before:
-                    self._notify("Hora de notificación (todo el día) actualizada")
+                self.call_later(self._refresh)
+                after_reload = self._repo.load()
+                if after_reload.notifications.all_day_notify_time != before:
+                    self._notify("All-day notification time updated")
                 else:
-                    self._notify("Formato inválido. Usa HH:MM (ej: 09:00)")
+                    self._notify("Invalid format. Use HH:MM (e.g.: 09:00)")
 
             self.app.push_screen(
                 SimpleTextInputScreen(
-                    title="Notificación de eventos (todo el día)",
-                    label="Hora (HH:MM)",
+                    title="All-day event notification",
+                    label="Time (HH:MM)",
                     initial=initial,
                     placeholder="09:00",
                 ),
@@ -294,18 +289,18 @@ class ConfigPane(Container):
                 try:
                     mins = int(s)
                 except Exception:  # noqa: BLE001
-                    self._notify("Valor inválido. Usa un número (ej: 0, 10, 15)")
+                    self._notify("Invalid value. Use a number (e.g.: 0, 10, 15)")
                     return
                 if mins < 0:
                     mins = 0
                 set_default_notify_minutes_before(repo=self._repo, minutes=mins)
-                self._notify("Minutos por defecto actualizados")
-                self._refresh()
+                self._notify("Default minutes updated")
+                self.call_later(self._refresh)
 
             self.app.push_screen(
                 SimpleTextInputScreen(
-                    title="Notificación de eventos con hora",
-                    label="Minutos antes (0 = a la hora exacta)",
+                    title="Timed event notification",
+                    label="Minutes before (0 = at event time)",
                     initial=initial,
                     placeholder="0",
                 ),
