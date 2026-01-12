@@ -1,4 +1,4 @@
-"""Aplicación principal Textual."""
+"""Main Textual application."""
 
 from datetime import date, datetime
 from pathlib import Path
@@ -13,7 +13,7 @@ from logui.infrastructure.repositories.files_repo_fs import FsFilesRepository
 from logui.infrastructure.repositories.journal_repo_json import JsonJournalRepository
 from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
 from logui.infrastructure.services.sound import play_notification_sound
-from logui.ui.dates import fmt_header_date_es
+from logui.ui.dates import fmt_day_header_en
 from logui.ui.screens.config import ConfigPane
 from logui.ui.screens.events import EventsPane, ensure_data_dir
 from logui.ui.screens.files import FilesPane
@@ -38,7 +38,7 @@ class NavItem(ListItem):
 
 
 class Sidebar(Container):
-    """Barra lateral de navegación."""
+    """Navigation sidebar."""
 
     def compose(self) -> ComposeResult:
         with ListView(id="nav-list"):
@@ -64,7 +64,7 @@ class LogUIApp(App):
         ("f", "nav_files", "Files"),
         ("l", "nav_log", "Log"),
         ("?", "nav_config", "Config/Help"),
-        ("ctrl+q", "quit", "Salir"),
+        ("ctrl+q", "quit", "Quit"),
     ]
 
     def __init__(self, **kwargs):
@@ -88,7 +88,7 @@ class LogUIApp(App):
         self._ui_day: date = datetime.now().date()
 
     def compose(self) -> ComposeResult:
-        """Crear widgets."""
+        """Create widgets."""
         yield Header(show_clock=True)
         with Horizontal(id="layout"):
             yield Sidebar(id="sidebar")
@@ -114,7 +114,7 @@ class LogUIApp(App):
 
     def format_title(self, title: str, sub_title: str) -> str:
         now = datetime.now()
-        date_s = fmt_header_date_es(now)
+        date_s = fmt_day_header_en(now.date())
 
         base = (title or "").strip() or "LogUI"
         return f"{base} — {date_s}"
@@ -123,7 +123,7 @@ class LogUIApp(App):
         dt = now or datetime.now()
         # Show the current date in the header (left side) and keep it fresh on rollover.
         try:
-            self.sub_title = fmt_header_date_es(dt)
+            self.sub_title = fmt_day_header_en(dt.date())
         except Exception:  # noqa: BLE001
             pass
 

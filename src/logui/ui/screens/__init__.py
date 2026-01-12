@@ -1,4 +1,4 @@
-"""Screens - Pantallas de la aplicación."""
+"""Screens - Application screens."""
 
 from .config import ConfigPane
 from .events import EventsPane

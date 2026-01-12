@@ -1,6 +1,6 @@
 """Utilidades de formateo de fechas para la UI.
 
-Nota: aquí centralizamos el formateo para evitar duplicar mapas de meses/días.
+Note: we centralize formatting here to avoid duplicating month/day maps.
 """
 
 from __future__ import annotations
@@ -59,20 +59,20 @@ _ES_MONTHS_SHORT: dict[int, str] = {
 
 
 def fmt_day_full_friendly(day: date) -> str:
-    """Formato fijo con año: `29 Dec, 2026`."""
+    """Fixed format with year: `29 Dec, 2026`."""
     return f"{day.day} {_EN_MONTHS_SHORT.get(day.month, str(day.month))}, {day.year}"
 
 
 def fmt_day_short_friendly(day: date, *, today: date) -> str:
-    """Formato corto (manteniendo el comportamiento actual): `29 Dec, 2026`."""
+    """Short format (maintaining current behavior): `29 Dec, 2026`."""
     base = f"{day.day} {_EN_MONTHS_SHORT.get(day.month, str(day.month))}"
     return f"{base}, {day.year}"
 
 
 def fmt_day_compact_friendly(day: date, *, today: date) -> str:
-    """Formato compacto: `29 Dec` (sin año si es el año actual).
+    """Compact format: `29 Dec` (without year if it's the current year).
 
-    Si el año es posterior al de `today`, incluye el año (mantiene el output actual de Events).
+    If the year is later than `today`, includes the year (maintains current Events output).
     """
     base = f"{day.day} {_EN_MONTHS_SHORT.get(day.month, str(day.month))}"
     if day.year > today.year:
@@ -81,20 +81,20 @@ def fmt_day_compact_friendly(day: date, *, today: date) -> str:
 
 
 def fmt_header_date_es(dt: datetime) -> str:
-    """Fecha para cabecera (es): `Mié 7 Ene 2026`."""
+    """Spanish header format: `Mié 7 Ene 2026`."""
     wd = _ES_WEEKDAYS_SHORT.get(dt.weekday(), str(dt.weekday()))
     mo = _ES_MONTHS_SHORT.get(dt.month, str(dt.month))
     return f"{wd} {dt.day} {mo} {dt.year}"
 
 
 def fmt_day_header_en(day: date) -> str:
-    """Cabecera en inglés: `Mon 29 Dec, 2026` (usado por Journal)."""
+    """English header format: `Mon 29 Dec, 2026` (used by Journal)."""
     wd = _EN_WEEKDAYS_SHORT.get(day.weekday(), str(day.weekday()))
     mon = _EN_MONTHS_SHORT.get(day.month, str(day.month))
     return f"{wd} {day.day} {mon}, {day.year}"
 
 
 def fmt_day_list_short_en(day: date) -> str:
-    """Lista corta en inglés: `29 Dec 2026` (usado por Journal)."""
+    """Short English list format: `29 Dec 2026` (used by Journal)."""
     mon = _EN_MONTHS_SHORT.get(day.month, str(day.month))
     return f"{day.day} {mon} {day.year}"

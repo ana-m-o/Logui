@@ -1,1 +1,1 @@
-"""UI Textual - Screens, widgets y presentación."""
+"""UI Textual - Screens, widgets and presentation."""

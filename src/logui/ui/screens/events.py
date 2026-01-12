@@ -260,7 +260,7 @@ def parse_date_flexible(raw: str, *, today: date) -> date:
         new_month = (total % 12) + 1
         return new_year, new_month
 
-    # DD/MM -> próxima ocurrencia (si ya pasó este año, usa el año siguiente)
+    # DD/MM -> next occurrence (if already passed this year, use next year)
     m = re.fullmatch(r"\s*(\d{1,2})/(\d{1,2})\s*", s)
     if m:
         day = int(m.group(1))
@@ -277,7 +277,7 @@ def parse_date_flexible(raw: str, *, today: date) -> date:
                 raise ValidationError("Invalid date") from e
         return cand
 
-    # MM-DD -> próxima ocurrencia (si ya pasó este año, usa el año siguiente)
+    # MM-DD -> next occurrence (if already passed this year, use next year)
     m = re.fullmatch(r"\s*(\d{1,2})-(\d{1,2})\s*", s)
     if m:
         month = int(m.group(1))
@@ -294,7 +294,7 @@ def parse_date_flexible(raw: str, *, today: date) -> date:
                 raise ValidationError("Invalid date") from e
         return cand
 
-    # DD -> próxima ocurrencia (si ya pasó este mes, usa el mes siguiente)
+    # DD -> next occurrence (if already passed this month, use next month)
     m = re.fullmatch(r"\s*(\d{1,2})\s*", s)
     if m:
         day = int(m.group(1))

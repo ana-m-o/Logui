@@ -107,13 +107,13 @@ class LogPane(Container):
             completion_date = (task.completed_at or task.updated_at).astimezone().date()
             entries_by_date[completion_date].append(("task", task))
 
-        # Construir snapshot de render (para evitar parpadeo si no cambia nada)
+        # Build render snapshot (to avoid flicker if nothing changes)
         rendered_groups: list[str] = []
 
-        # Ordenar fechas en orden descendente (más reciente primero)
+        # Sort dates in descending order (most recent first)
         sorted_dates = sorted(entries_by_date.keys(), reverse=True)
         if not sorted_dates:
-            rendered_groups = ["[dim]No hay eventos pasados ni tareas completadas[/dim]"]
+            rendered_groups = ["[dim]No past events or completed tasks[/dim]"]
         else:
             for day in sorted_dates:
                 date_label = fmt_day_full_friendly(day)
@@ -161,28 +161,28 @@ class LogPane(Container):
             pass
 
     def _get_entry_sort_key(self, entry: tuple[str, Event | Task]) -> tuple:
-        """Obtener clave de ordenación para una entrada."""
+        """Get sort key for an entry."""
         entry_type, item = entry
 
         if entry_type == "event":
-            # Ordenar eventos por start_time (o al final si no tiene hora)
+            # Sort events by start_time (or at the end if no time)
             if item.start_time:
                 return (0, item.start_time)
             else:
                 return (1, datetime.min.time())
         else:  # task
-            # Ordenar tareas por hora de actualización
+            # Sort tasks by update time
             return (0, item.updated_at.time())
 
     def _format_event_entry(self, event: Event) -> str:
-        """Formatear entrada de evento con indentación."""
+        """Format event entry with indentation."""
         today = today_local()
         start_day = event.date
         end_day = start_day.fromordinal(start_day.toordinal() + int(event.end_day_offset or 0))
 
         day_part = fmt_day_compact_friendly(start_day, today=today)
 
-        # Formato de hora/duración
+        # Format time/duration
         time_part = "All day"
         if event.start_time is None:
             if event.end_day_offset and event.end_day_offset > 0:
@@ -202,18 +202,18 @@ class LogPane(Container):
         # Agregar notas si existen
         notes_text = _format_event_notes(event.notes)
         if notes_text:
-            # Indentar las notas también
+            # Indent notes too
             return f"{title_line}\n{notes_text}"
         else:
             return title_line
 
     def _format_task_entry(self, task: Task) -> str:
-        """Formatear entrada de tarea completada con indentación."""
-        # Formato: ✓ Título de la tarea
+        """Format completed task entry with indentation."""
+        # Format: ✓ Task title
         completed = task.completed_at or task.updated_at
         completion_time = _format_time(completed.time())
-        # Nota: escapamos solo el corchete de apertura para que Rich no interprete
-        # "[X]" como markup.
+        # Note: we escape only the opening bracket so Rich doesn't interpret
+        # "[X]" as markup.
         suffix_parts: list[str] = []
         if task.link is not None:
             link_text = (task.link.display_text() or "").strip()

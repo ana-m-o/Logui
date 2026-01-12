@@ -1,1 +1,1 @@
-"""Infraestructura - Implementaciones de puertos."""
+"""Infrastructure - Port implementations."""
