@@ -192,3 +192,129 @@ def test_end_time_before_start_time_autofills_end_day_plus_one():
     assert res.end_day_value == "2025-12-26"
     assert res.duration_minutes == 240  # 4 hours (22:00 -> 02:00 next day)
     assert res.end_day_autofilled is True
+
+
+def test_single_digit_end_time_does_not_trigger_rollover():
+    """Test that typing a single digit 1 or 2 in end_time doesn't trigger rollover (ambiguous input)."""
+    today = date(2025, 12, 25)
+    start_day = date(2025, 12, 25)
+
+    # User types "1" in end_time (could be typing "10", "11", "12", etc.)
+    res = _sync_end_fields_logic(
+        changed_id="end_time",
+        start_day=start_day,
+        start_time_raw="9:00",
+        end_day_raw="",
+        end_time_raw="1",  # Single digit 1 - ambiguous
+        duration_minutes=None,
+        end_day_autofilled=False,
+        today=today,
+    )
+
+    # Should NOT auto-fill end_day because input is ambiguous
+    assert res.end_day_value is None
+    assert res.end_day_autofilled is False
+
+    # Same for "2"
+    res = _sync_end_fields_logic(
+        changed_id="end_time",
+        start_day=start_day,
+        start_time_raw="9:00",
+        end_day_raw="",
+        end_time_raw="2",  # Single digit 2 - ambiguous
+        duration_minutes=None,
+        end_day_autofilled=False,
+        today=today,
+    )
+
+    assert res.end_day_value is None
+    assert res.end_day_autofilled is False
+
+
+def test_single_digit_3_or_higher_is_not_ambiguous():
+    """Test that single digits 3-9 are not ambiguous and trigger rollover if needed."""
+    today = date(2025, 12, 25)
+    start_day = date(2025, 12, 25)
+
+    # User types "3" in end_time (unambiguous, can only be 3:00)
+    res = _sync_end_fields_logic(
+        changed_id="end_time",
+        start_day=start_day,
+        start_time_raw="9:00",
+        end_day_raw="",
+        end_time_raw="3",  # Single digit 3 - NOT ambiguous
+        duration_minutes=None,
+        end_day_autofilled=False,
+        today=today,
+    )
+
+    # Should trigger rollover because 3:00 < 9:00
+    assert res.end_day_value == "2025-12-26"
+    assert res.end_day_autofilled is True
+
+
+def test_two_digit_end_time_triggers_rollover_when_appropriate():
+    """Test that typing two digits in end_time triggers rollover if needed (unambiguous)."""
+    today = date(2025, 12, 25)
+    start_day = date(2025, 12, 25)
+
+    # User completes typing "11" in end_time (unambiguous)
+    res = _sync_end_fields_logic(
+        changed_id="end_time",
+        start_day=start_day,
+        start_time_raw="9:00",
+        end_day_raw="",
+        end_time_raw="11",  # Two digits - unambiguous, after start_time
+        duration_minutes=None,
+        end_day_autofilled=False,
+        today=today,
+    )
+
+    # Should NOT auto-fill end_day because 11:00 > 9:00 (same day)
+    assert res.end_day_value is None
+    assert res.duration_minutes == 120  # 2 hours
+    assert res.end_day_autofilled is False
+
+
+def test_single_digit_clears_autofilled_end_day():
+    """Test that typing a single digit when end_day was autofilled clears it."""
+    today = date(2025, 12, 25)
+    start_day = date(2025, 12, 25)
+
+    # User had typed "2" before (which triggered rollover), now types "1"
+    res = _sync_end_fields_logic(
+        changed_id="end_time",
+        start_day=start_day,
+        start_time_raw="9:00",
+        end_day_raw="2025-12-26",
+        end_time_raw="1",  # Single digit - ambiguous
+        duration_minutes=None,
+        end_day_autofilled=True,  # Was previously autofilled
+        today=today,
+    )
+
+    # Should clear the autofilled end_day
+    assert res.end_day_value == ""
+    assert res.end_day_autofilled is False
+
+
+def test_time_with_colon_is_not_ambiguous():
+    """Test that time with explicit colon is not treated as ambiguous."""
+    today = date(2025, 12, 25)
+    start_day = date(2025, 12, 25)
+
+    # User types "1:" (explicit colon, so not ambiguous)
+    res = _sync_end_fields_logic(
+        changed_id="end_time",
+        start_day=start_day,
+        start_time_raw="9:00",
+        end_day_raw="",
+        end_time_raw="1:",  # Has colon - not ambiguous
+        duration_minutes=None,
+        end_day_autofilled=False,
+        today=today,
+    )
+
+    # Should trigger rollover because 1:00 < 9:00
+    assert res.end_day_value == "2025-12-26"
+    assert res.end_day_autofilled is True

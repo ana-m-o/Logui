@@ -50,6 +50,32 @@ class EndSyncResult:
     end_day_autofilled: bool
 
 
+def _is_time_input_ambiguous(raw: str) -> bool:
+    """Check if a time input is ambiguous (could have more digits coming).
+    
+    Only single digits "1" or "2" are ambiguous (could be 10, 11, 12, etc.).
+    Other single digits (3-9) are unambiguous.
+    
+    Examples:
+    - "1" -> True (could be 1:00, 10:00, 11:00, etc.)
+    - "2" -> True (could be 2:00, 20:00, 21:00, etc.)
+    - "3" -> False (can only be 3:00)
+    - "11" -> False (clearly 11:00)
+    - "1:" -> False (user explicitly added colon)
+    - "1:3" -> False (user is specifying minutes)
+    """
+    s = (raw or "").strip()
+    if not s:
+        return False
+    # If it contains a colon, it's explicit
+    if ":" in s:
+        return False
+    # Only single digits "1" or "2" are ambiguous
+    if len(s) == 1 and s in ("1", "2"):
+        return True
+    return False
+
+
 def _infer_end_day_offset_for_duration(
     *,
     start_t: time,
@@ -134,6 +160,23 @@ def _sync_end_fields_logic(
         if not end_time_s:
             # If user clears end_time, don't fight their edits by changing end_day.
             return EndSyncResult(None, None, None, end_day_autofilled)
+
+        # If the input is ambiguous (e.g., single digit like "1"), don't apply rollover logic yet.
+        # This prevents the issue where typing "11" triggers rollover on the first "1".
+        if _is_time_input_ambiguous(end_time_s):
+            # Still try to parse and update duration, but don't auto-fill end_day
+            try:
+                end_t = parse_time_flexible(end_time_s)
+            except Exception:  # noqa: BLE001
+                return EndSyncResult(None, None, duration_minutes, end_day_autofilled)
+
+            # If end_day was previously autofilled and the user is typing a new time,
+            # we should clear it to avoid confusion.
+            if end_day_autofilled:
+                return EndSyncResult("", None, None, False)
+            
+            # Otherwise, just keep things as they are without auto-filling
+            return EndSyncResult(None, None, duration_minutes, end_day_autofilled)
 
         try:
             end_t = parse_time_flexible(end_time_s)
@@ -613,6 +656,19 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
 
         if event.input.id == "end_day":
             self._update_end_day_hint()
+
+    def on_blur(self, event: events.Blur) -> None:
+        """Handle blur events to apply rollover logic for ambiguous time inputs."""
+        # When end_time loses focus and has an ambiguous value (1 or 2),
+        # re-run sync to apply rollover logic now that user is done typing.
+        if hasattr(event.control, "id") and event.control.id == "end_time":
+            end_time_input = self.query_one("#end_time", Input)
+            end_time_raw = (end_time_input.value or "").strip()
+            
+            # If it was ambiguous but now user is done, re-sync with force
+            if end_time_raw and not _is_time_input_ambiguous(end_time_raw):
+                self._sync_end_fields(changed_id="end_time")
+                self._update_end_day_hint()
 
     def _update_start_day_hint(self) -> None:
         hint = self.query_one("#start_day_hint", Static)
