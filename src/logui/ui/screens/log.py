@@ -44,6 +44,27 @@ def _format_task_notes(notes: list[TaskNote]) -> str:
     return "\n".join(f"    [dim italic]- {_escape_rich(n.text)}[/]" for n in notes)
 
 
+def _collect_all_completed_tasks(tasks: list[Task]) -> list[Task]:
+    """Collect all completed tasks including subtasks recursively.
+    
+    Returns a flat list of all completed tasks (DONE status) from the entire tree,
+    including both parent tasks and their completed subtasks.
+    """
+    completed = []
+    
+    def _traverse(task: Task) -> None:
+        if task.status == TaskStatus.DONE:
+            completed.append(task)
+        # Recursively check subtasks
+        for subtask in task.subtasks:
+            _traverse(subtask)
+    
+    for task in tasks:
+        _traverse(task)
+    
+    return completed
+
+
 class LogPane(Container):
     """Panel de Log con historial de eventos y tareas completadas."""
 
@@ -90,11 +111,12 @@ class LogPane(Container):
 
         # Obtener tareas completadas (no de hoy)
         all_tasks = list(self._tasks_repo.list_tasks())
+        # Use the helper to collect ALL completed tasks including subtasks
+        all_completed = _collect_all_completed_tasks(all_tasks)
         completed_tasks = [
             t
-            for t in all_tasks
-            if t.status == TaskStatus.DONE
-            and (t.completed_at or t.updated_at).astimezone().date() < today
+            for t in all_completed
+            if (t.completed_at or t.updated_at).astimezone().date() < today
         ]
 
         # Agrupar por fecha
