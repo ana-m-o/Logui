@@ -201,25 +201,28 @@ class LogPane(Container):
         today = today_local()
         start_day = event.date
         end_day = start_day.fromordinal(start_day.toordinal() + int(event.end_day_offset or 0))
+        
+        is_multi_day = event.end_day_offset and event.end_day_offset > 0
 
-        day_part = fmt_day_compact_friendly(start_day, today=today)
+        # Only show date for multi-day events (single-day events already have date in header)
+        day_part = ""
+        if is_multi_day:
+            day_part = f"{fmt_day_compact_friendly(start_day, today=today)}–{fmt_day_compact_friendly(end_day, today=today)}"
 
         # Format time/duration
         time_part = "All day"
-        if event.start_time is None:
-            if event.end_day_offset and event.end_day_offset > 0:
-                day_part = f"{day_part}–{fmt_day_compact_friendly(end_day, today=today)}"
-        else:
+        if event.start_time is not None:
             start_s = event.start_time.strftime("%H:%M")
             end_s = event.end_time.strftime("%H:%M") if event.end_time else "??"
-            if event.end_day_offset and event.end_day_offset > 0:
-                time_part = (
-                    f"{start_s}–{fmt_day_compact_friendly(end_day, today=today)} {end_s}"
-                )
-            else:
-                time_part = f"{start_s}–{end_s}"
+            time_part = f"{start_s}–{end_s}"
 
-        title_line = f"  [dim]{day_part} {time_part}[/dim]  {_escape_rich(event.title)}"
+        # Build the title line
+        if day_part:
+            # Multi-day event: show date range and time
+            title_line = f"  [dim]{day_part} {time_part}[/dim]  {_escape_rich(event.title)}"
+        else:
+            # Single-day event: only show time
+            title_line = f"  [dim]{time_part}[/dim]  {_escape_rich(event.title)}"
 
         # Agregar notas si existen
         notes_text = _format_event_notes(event.notes)
