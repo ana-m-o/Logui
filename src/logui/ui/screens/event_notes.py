@@ -14,7 +14,13 @@ from textual.widgets import Input, Label, ListItem, ListView, Static
 from logui.domain.entities.event import Event
 from logui.domain.ports.events import EventRepository
 from logui.ui.screens.modals import ConfirmScreen
-from logui.usecases.events import add_event_note, delete_event_note, update_event_note
+from logui.usecases.events import (
+    add_event_note,
+    delete_event_note,
+    move_event_note_down,
+    move_event_note_up,
+    update_event_note,
+)
 
 
 def utc_now() -> datetime:
@@ -86,6 +92,8 @@ class EventNotesScreen(ModalScreen[None]):
         Binding("e", "edit", "Edit", show=False),
         Binding("enter", "edit", "Edit", show=False),
         Binding("x", "delete", "Delete", show=False),
+        Binding("alt+up", "move_up", "Move up", show=False),
+        Binding("alt+down", "move_down", "Move down", show=False),
         Binding("escape", "back", "Back", show=False),
     ]
 
@@ -114,7 +122,7 @@ class EventNotesScreen(ModalScreen[None]):
         yield Container(
             Label("Notes", id="notes_title", classes="modal_title"),
             Static(
-                "[dim]n new • enter/e edit • x delete • esc back[/dim]",
+                "[dim]n new • enter/e edit • x delete • alt+↑/↓ reorder • esc back[/dim]",
                 id="notes_help",
                 classes="modal_help",
             ),
@@ -237,3 +245,61 @@ class EventNotesScreen(ModalScreen[None]):
                 self._notify(f"Error: {e}")
 
         self.app.push_screen(ConfirmScreen("Delete note?"), callback=_on_confirm)
+
+    def action_move_up(self) -> None:
+        note_id = self._selected_note_id()
+        if note_id is None:
+            return
+        
+        ev = self._get_event()
+        if ev is None:
+            return
+        
+        lv = self.query_one("#notes_list", ListView)
+        idx = lv.index or 0
+        
+        # Can't move first item up
+        if idx == 0:
+            return
+        
+        try:
+            move_event_note_up(self._repo, self._event_id, note_id, now=utc_now())
+            
+            # Move the DOM node without rebuilding the entire list
+            items = list(lv.query(ListItem))
+            if idx < len(items) and idx - 1 >= 0:
+                lv.move_child(items[idx], before=items[idx - 1])
+                lv.index = idx - 1
+            
+            self._notify_changed()
+        except Exception as e:  # noqa: BLE001
+            self._notify(f"Error: {e}")
+
+    def action_move_down(self) -> None:
+        note_id = self._selected_note_id()
+        if note_id is None:
+            return
+        
+        ev = self._get_event()
+        if ev is None:
+            return
+        
+        lv = self.query_one("#notes_list", ListView)
+        idx = lv.index or 0
+        
+        # Can't move last item down
+        if idx >= len(ev.notes) - 1:
+            return
+        
+        try:
+            move_event_note_down(self._repo, self._event_id, note_id, now=utc_now())
+            
+            # Move the DOM node without rebuilding the entire list
+            items = list(lv.query(ListItem))
+            if idx < len(items) and idx + 1 < len(items):
+                lv.move_child(items[idx], after=items[idx + 1])
+                lv.index = idx + 1
+            
+            self._notify_changed()
+        except Exception as e:  # noqa: BLE001
+            self._notify(f"Error: {e}")

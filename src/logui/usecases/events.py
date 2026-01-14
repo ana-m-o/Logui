@@ -229,6 +229,61 @@ def delete_event_note(
     return ev
 
 
+def move_event_note_up(
+    repo: EventRepository,
+    event_id: UUID,
+    note_id: UUID,
+    *,
+    now: datetime | None = None,
+) -> Event:
+    """Move an event note up in the list (towards the beginning)."""
+    return _move_event_note(repo, event_id, note_id, direction=-1, now=now)
+
+
+def move_event_note_down(
+    repo: EventRepository,
+    event_id: UUID,
+    note_id: UUID,
+    *,
+    now: datetime | None = None,
+) -> Event:
+    """Move an event note down in the list (towards the end)."""
+    return _move_event_note(repo, event_id, note_id, direction=+1, now=now)
+
+
+def _move_event_note(
+    repo: EventRepository,
+    event_id: UUID,
+    note_id: UUID,
+    *,
+    direction: int,
+    now: datetime | None = None,
+) -> Event:
+    """Move an event note up (-1) or down (+1) in the notes list."""
+    if direction not in (-1, +1):
+        raise ValueError("direction must be -1 or +1")
+
+    ev = repo.get_event(event_id)
+    if ev is None:
+        raise ValidationError("Event not found")
+    
+    idx = next((i for i, n in enumerate(ev.notes) if n.id == note_id), None)
+    if idx is None:
+        raise ValidationError("Note not found")
+    
+    swap_idx = idx + direction
+    if swap_idx < 0 or swap_idx >= len(ev.notes):
+        # Already at boundary, no-op
+        return ev
+    
+    # Swap the notes
+    ev.notes[idx], ev.notes[swap_idx] = ev.notes[swap_idx], ev.notes[idx]
+    
+    ev.touch(now=now)
+    repo.upsert_event(ev)
+    return ev
+
+
 def toggle_event_notify(
     repo: EventRepository,
     event_id: UUID,

@@ -303,13 +303,13 @@ def test_time_with_colon_is_not_ambiguous():
     today = date(2025, 12, 25)
     start_day = date(2025, 12, 25)
 
-    # User types "1:" (explicit colon, so not ambiguous)
+    # User types "1:0" (explicit colon with minutes, so not ambiguous)
     res = _sync_end_fields_logic(
         changed_id="end_time",
         start_day=start_day,
         start_time_raw="9:00",
         end_day_raw="",
-        end_time_raw="1:",  # Has colon - not ambiguous
+        end_time_raw="1:0",  # Has colon - not ambiguous
         duration_minutes=None,
         end_day_autofilled=False,
         today=today,

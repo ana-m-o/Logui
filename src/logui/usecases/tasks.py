@@ -424,3 +424,56 @@ def delete_task_note(
         root.touch(now=now)
         repo.upsert_task(root)
     return deleted
+
+
+def move_task_note_up(
+    repo: TaskRepository,
+    task_id: UUID,
+    note_id: UUID,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Move a task note up in the list (towards the beginning)."""
+    return _move_task_note(repo, task_id, note_id, direction=-1, now=now)
+
+
+def move_task_note_down(
+    repo: TaskRepository,
+    task_id: UUID,
+    note_id: UUID,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Move a task note down in the list (towards the end)."""
+    return _move_task_note(repo, task_id, note_id, direction=+1, now=now)
+
+
+def _move_task_note(
+    repo: TaskRepository,
+    task_id: UUID,
+    note_id: UUID,
+    *,
+    direction: int,
+    now: datetime | None = None,
+) -> bool:
+    """Move a task note up (-1) or down (+1) in the notes list."""
+    if direction not in (-1, +1):
+        raise ValueError("direction must be -1 or +1")
+
+    root, task, _parent = _find_root_and_task(repo, task_id)
+    
+    idx = next((i for i, n in enumerate(task.notes) if n.id == note_id), None)
+    if idx is None:
+        return False
+    
+    swap_idx = idx + direction
+    if swap_idx < 0 or swap_idx >= len(task.notes):
+        return False
+    
+    # Swap the notes
+    task.notes[idx], task.notes[swap_idx] = task.notes[swap_idx], task.notes[idx]
+    
+    task.touch(now=now)
+    root.touch(now=now)
+    repo.upsert_task(root)
+    return True
