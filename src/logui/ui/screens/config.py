@@ -165,8 +165,14 @@ class ConfigPane(Container):
 
     def on_mount(self) -> None:
         self._refresh()
+        self.call_later(self._focus_list)
+
+    def _focus_list(self) -> None:
         try:
-            self.query_one("#config_list", ListView).focus()
+            lv = self.query_one("#config_list", ListView)
+            if len(list(lv.query(ListItem))) > 0:
+                lv.index = 0
+            lv.focus()
         except Exception:  # noqa: BLE001
             pass
 

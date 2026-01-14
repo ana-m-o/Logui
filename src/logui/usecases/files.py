@@ -11,6 +11,30 @@ from logui.domain.errors import ValidationError
 from logui.domain.ports.files import FilesRepository
 
 
+# GUI editors that launch in separate windows (non-blocking)
+# Add editors here to avoid app suspend/resume flicker
+GUI_EDITORS = {
+    "code",
+    "code-insiders",
+    "subl",
+    "sublime_text",
+    "atom",
+    "gedit",
+    "kate",
+    "notepad++",
+    "notepad",
+    "gvim",
+    "idea",
+    "pycharm",
+    "webstorm",
+}
+
+
+def is_gui_editor(command: str) -> bool:
+    """Check if the given editor command is a GUI editor."""
+    return command in GUI_EDITORS
+
+
 def normalize_txt_filename(raw: str) -> str:
     name = (raw or "").strip()
     if not name:

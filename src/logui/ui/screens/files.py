@@ -15,7 +15,12 @@ from logui.domain.ports.config import ConfigRepository
 from logui.domain.ports.files import FilesRepository
 from logui.ui.screens.modals import ConfirmScreen
 from logui.usecases.config import update_editor
-from logui.usecases.files import build_editor_argv, create_txt_file, resolve_editor_config
+from logui.usecases.files import (
+    build_editor_argv,
+    create_txt_file,
+    is_gui_editor,
+    resolve_editor_config,
+)
 
 
 @dataclass(frozen=True)
@@ -382,14 +387,27 @@ class FilesPane(Container):
                 self._notify(msg)
 
             argv = build_editor_argv(resolved, path)
+            
+            # Determine if this is a GUI editor that launches in a separate window
+            # vs a terminal editor that needs exclusive terminal access.
+            is_gui = is_gui_editor(resolved.command)
+            
             # Important: Textual runs the terminal in raw mode and captures input.
-            # To let a TUI editor (nano/vim/etc.) work normally, suspend the app
-            # and run the editor in the foreground.
+            # For TUI editors (nano/vim/etc.) we must suspend the app and run them
+            # in the foreground. For GUI editors we launch them without suspending.
             try:
-                with self.app.suspend():
-                    subprocess.run(argv, check=False)  # noqa: S603
+                if is_gui:
+                    # Non-blocking: launch GUI editor and continue
+                    subprocess.Popen(argv)  # noqa: S603
+                else:
+                    # Blocking: suspend app and run terminal editor
+                    with self.app.suspend():
+                        subprocess.run(argv, check=False)  # noqa: S603
             except Exception:  # noqa: BLE001
                 # In headless/test drivers suspend may not be available.
-                subprocess.run(argv, check=False)  # noqa: S603
+                if is_gui:
+                    subprocess.Popen(argv)  # noqa: S603
+                else:
+                    subprocess.run(argv, check=False)  # noqa: S603
         except Exception as e:  # noqa: BLE001
             self._notify_error("Error abriendo editor", e)
