@@ -1243,8 +1243,40 @@ class EventsPane(Container):
             self._refresh()
             return
 
+        # Update the event in the internal list
         self._events[idx] = updated
-        lv.index = idx
+        
+        # Check if the event should be reordered
+        def sort_key(ev: Event) -> tuple[date, int, int, str]:
+            all_day_rank = 0 if ev.start_time is None else 1
+            minutes = -1
+            if ev.start_time is not None:
+                minutes = ev.start_time.hour * 60 + ev.start_time.minute
+            return (ev.date, all_day_rank, minutes, str(ev.id))
+        
+        # Create a sorted copy to find new position
+        sorted_events = sorted(self._events, key=sort_key)
+        new_idx = next((i for i, ev in enumerate(sorted_events) if ev.id == updated.id), idx)
+        
+        # If position changed, reorder using move_child
+        if new_idx != idx:
+            # Update internal list to match sorted order
+            self._events = sorted_events
+            
+            # Move the DOM node to the new position
+            if new_idx < idx:
+                # Moving up - insert before the item at new_idx
+                if new_idx < len(items):
+                    lv.move_child(item, before=items[new_idx])
+            else:
+                # Moving down - insert after the item at new_idx
+                if new_idx < len(items):
+                    lv.move_child(item, after=items[new_idx])
+            
+            lv.index = new_idx
+        else:
+            lv.index = idx
+        
         if focus:
             lv.focus()
 
