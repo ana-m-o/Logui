@@ -1121,6 +1121,13 @@ class EventsPane(Container):
                 pass
         if focus:
             lv.focus()
+        
+        # Update event count in sidebar
+        try:
+            if hasattr(self.app, 'update_nav_counts'):
+                self.app.update_nav_counts()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
 
     def _format_row(self, ev: Event) -> str:
         today = today_local()

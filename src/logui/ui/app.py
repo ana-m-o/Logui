@@ -67,10 +67,18 @@ class NavItem(ListItem):
     def __init__(self, label: str, screen_id: str):
         super().__init__(id=screen_id, classes="menu_item")
         self.screen_id = screen_id
-        self._label = label
+        self._base_label = label
 
     def compose(self) -> ComposeResult:
-        yield Static(self._label, markup=False)
+        yield Static(self._base_label, markup=True, id=f"nav_label_{self.screen_id}")
+    
+    def update_label(self, text: str) -> None:
+        """Update the navigation item label."""
+        try:
+            label = self.query_one(f"#nav_label_{self.screen_id}", Static)
+            label.update(text)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class Sidebar(Container):
@@ -124,6 +132,7 @@ class LogUIApp(App):
         # Track local day while the app is running to perform a daily rollover
         # without requiring a restart.
         self._ui_day: date = datetime.now().date()
+        self._poll_counter: int = 0  # Counter for 30-second tasks
 
     def compose(self) -> ComposeResult:
         """Create widgets."""
@@ -146,9 +155,9 @@ class LogUIApp(App):
 
     def on_mount(self) -> None:
         self._set_active("tasks")
-        self._start_event_notifications()
         self._update_header_date()
-        self._start_day_rollover_poll()
+        self.update_nav_counts()  # Initial update
+        self._start_polling()
 
     def format_title(self, title: str, sub_title: str) -> str:
         now = datetime.now()
@@ -166,12 +175,70 @@ class LogUIApp(App):
         except Exception:  # noqa: BLE001
             pass
 
-    def _start_day_rollover_poll(self) -> None:
-        # Polling-based day rollover (MVP): updates UI when local date changes.
+    def _start_polling(self) -> None:
+        """Start unified polling for all periodic tasks."""
         try:
-            self.set_interval(30, self._poll_day_rollover)
+            self.set_interval(15, self._poll)
+            self._poll_event_notifications()  # Run notifications immediately
         except Exception:  # noqa: BLE001
             pass
+    
+    def _poll(self) -> None:
+        """Unified polling function called every 15 seconds."""
+        self._poll_counter += 1
+        
+        # Every 15 seconds: check event notifications
+        self._poll_event_notifications()
+        
+        # Every 30 seconds (every 2nd call): check day rollover and update counts
+        if self._poll_counter % 2 == 0:
+            self._poll_day_rollover()
+            self.update_nav_counts()
+    
+    def update_nav_counts(self) -> None:
+        """Update navigation item labels with counts. Public method."""
+        try:
+            count = self._count_today_events()
+            nav_item = self.query_one("#events", NavItem)
+            if count > 0:
+                nav_item.update_label(f"Events [dim]({count})[/dim]")
+            else:
+                nav_item.update_label("Events")
+        except Exception:  # noqa: BLE001
+            pass
+    
+    def _count_today_events(self) -> int:
+        """Count events for today, including multi-day events in progress."""
+        try:
+            from datetime import datetime, time as dt_time
+            now = datetime.now()
+            today = now.date()
+            events = self._events_repo.list_events()
+            count = 0
+            for ev in events:
+                # Calculate end day
+                end_day = ev.date.fromordinal(ev.date.toordinal() + int(ev.end_day_offset or 0))
+                
+                # Skip if event ended before today
+                if end_day < today:
+                    continue
+                
+                # Skip if event starts after today
+                if ev.date > today:
+                    continue
+                
+                # Event is within date range (started on or before today, ends on or after today)
+                # Now check if it has already finished based on time
+                if end_day == today and ev.end_time is not None:
+                    # Event ends today with a specific time - check if it already passed
+                    end_datetime = datetime.combine(end_day, ev.end_time)
+                    if now >= end_datetime:
+                        continue  # Event already finished
+                
+                count += 1
+            return count
+        except Exception:  # noqa: BLE001
+            return 0
 
     def _poll_day_rollover(self) -> None:
         now = datetime.now()
@@ -197,11 +264,6 @@ class LogUIApp(App):
             self.query_one("#log").on_day_rollover(today=today)  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001
             pass
-
-    def _start_event_notifications(self) -> None:
-        # Polling-based scheduler (MVP): fires while the app is open.
-        self.set_interval(15, self._poll_event_notifications)
-        self._poll_event_notifications()
 
     def _poll_event_notifications(self) -> None:
         now = datetime.now()
