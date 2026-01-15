@@ -152,15 +152,15 @@ class TaskNotesScreen(ModalScreen[None]):
         lv.clear()
 
         if task is None:
-            lv.append(ListItem(Label("(Task not found)")))
+            lv.append(ListItem(Static("(Task not found)")))
             return
 
         if not task.notes:
-            lv.append(ListItem(Label("(No notes) — press n to create")))
+            lv.append(ListItem(Static("(No notes) — press n to create")))
             return
 
         for note in task.notes:
-            lv.append(ListItem(Label(note.text)))
+            lv.append(ListItem(Static(note.text, markup=False)))
 
         lv.index = 0
 
