@@ -1,7 +1,16 @@
 """Main Textual application."""
 
+import sys
 from datetime import date, datetime
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    try:
+        import tomli as tomllib  # type: ignore[import-not-found,no-redef]
+    except ImportError:
+        tomllib = None  # type: ignore[assignment]
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
@@ -25,6 +34,33 @@ from logui.usecases.event_notifications import (
     due_notifications,
     notification_key,
 )
+
+
+def _get_project_info() -> tuple[str, str]:
+    """Read project name and version from pyproject.toml."""
+    try:
+        if tomllib is None:
+            return ("LogUI", "0.0.0")
+        
+        # Find pyproject.toml relative to this file
+        current_file = Path(__file__)
+        project_root = current_file.parents[3]  # logui/ui/app.py -> src -> code -> project root
+        pyproject_path = project_root / "pyproject.toml"
+        
+        if not pyproject_path.exists():
+            return ("LogUI", "0.0.0")
+        
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+            project = data.get("project", {})
+            name = project.get("name", "LogUI")
+            version = project.get("version", "0.0.0")
+            # Capitalize first letter if needed (logui -> LogUI)
+            if name.lower() == "logui":
+                name = "LogUI"
+            return (name, version)
+    except Exception:  # noqa: BLE001
+        return ("LogUI", "0.0.0")
 
 
 class NavItem(ListItem):
@@ -52,7 +88,7 @@ class Sidebar(Container):
 
 class LogUIApp(App):
     """TUI de productividad LogUI."""
-
+    
     CSS_PATH = [
         "styles/app.tcss",
     ]
@@ -69,6 +105,8 @@ class LogUIApp(App):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        name, _version = _get_project_info()
+        self.title = name
         self._data_dir = self._default_data_dir()
         ensure_data_dir(self._data_dir)
 
@@ -115,9 +153,10 @@ class LogUIApp(App):
     def format_title(self, title: str, sub_title: str) -> str:
         now = datetime.now()
         date_s = fmt_day_header_en(now.date())
+        _name, version = _get_project_info()
 
         base = (title or "").strip() or "LogUI"
-        return f"{base} — {date_s}"
+        return f"[dim]{base} v{version}[/dim] · {date_s}"
 
     def _update_header_date(self, now: datetime | None = None) -> None:
         dt = now or datetime.now()
