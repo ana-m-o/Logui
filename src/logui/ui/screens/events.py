@@ -1064,13 +1064,22 @@ class EventsPane(Container):
         today: date | None = None,
     ) -> None:
         today = today or today_local()
-        # Show events that haven't fully ended before today.
-        # This includes events that started in the past but are still in progress.
-        def _end_day(ev: Event) -> date:
-            return ev.date.fromordinal(ev.date.toordinal() + int(ev.end_day_offset or 0))
-
-        self._events = [ev for ev in self._repo.list_events() if _end_day(ev) >= today]
         now = datetime.now()
+        
+        # Filter events: show only those that are relevant for today or future.
+        # Hide events that ended before today (fully in the past).
+        def _is_visible(ev: Event) -> bool:
+            # Calculate the end date of the event
+            end_day = ev.date.fromordinal(ev.date.toordinal() + int(ev.end_day_offset or 0))
+            
+            # If event ends before today, it's in the past - don't show
+            if end_day < today:
+                return False
+            
+            # If event ends today or later, show it
+            return True
+
+        self._events = [ev for ev in self._repo.list_events() if _is_visible(ev)]
 
         def sort_key(ev: Event) -> tuple[date, int, int, str]:
             all_day_rank = 0 if ev.start_time is None else 1
