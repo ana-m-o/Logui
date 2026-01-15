@@ -393,7 +393,8 @@ def _build_start_day_hint_text(
 
     # Determine effective start day (matches submit behavior).
     if not start_day_s:
-        effective_day = initial_start_day
+        # Empty date always means today (matches _submit behavior)
+        effective_day = today
         if effective_day == today:
             day_label = f"Today, {effective_day.year}"
         else:
@@ -410,8 +411,7 @@ def _build_start_day_hint_text(
 
     # If date is empty (default = today) and the user enters a past time,
     # show a warning in the same style as past-date warnings.
-    # Only check this if today parameter matches the actual current date.
-    if start_time_s and not start_day_s and initial_start_day == today:
+    if start_time_s and not start_day_s:
         actual_today = datetime.now().date()
         if today == actual_today:
             try:
@@ -827,8 +827,8 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
 
         today = today_local()
         if not start_day_raw:
-            # In "New" this will be today; in "Edit" it preserves the existing date.
-            start_day = self._initial.start_day
+            # Empty date always means today, regardless of new/edit mode
+            start_day = today
         else:
             try:
                 start_day = parse_date_flexible(start_day_raw, today=today)
