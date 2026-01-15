@@ -53,6 +53,14 @@ ListView {
         height: auto;
         padding: 1;
     }
+
+    & > .list-view--highlight {
+        background: $boost;
+    }
+
+    &:focus > .list-view--highlight {
+        background: $accent;
+    }
 }
 
 .menu_item {

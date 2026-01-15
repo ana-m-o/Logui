@@ -138,6 +138,10 @@ class TaskNotesScreen(ModalScreen[None]):
     def action_back(self) -> None:
         self.dismiss(None)
 
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Handle ListView selection (enter key)."""
+        self.action_edit()
+
     def _notify(self, message: str) -> None:
         notify = getattr(self.app, "notify", None)
         if callable(notify):
@@ -149,6 +153,8 @@ class TaskNotesScreen(ModalScreen[None]):
     def _refresh(self) -> None:
         task = self._get_task()
         lv = self.query_one("#notes_list", ListView)
+        # Preserve current selection
+        current_index = lv.index if lv.index is not None else 0
         lv.clear()
 
         if task is None:
@@ -162,7 +168,11 @@ class TaskNotesScreen(ModalScreen[None]):
         for note in task.notes:
             lv.append(ListItem(Static(note.text, markup=False)))
 
-        lv.index = 0
+        if len(task.notes) > 0:
+            # Restore index, but ensure it's within bounds
+            lv.index = min(current_index, len(task.notes) - 1)
+            # Use call_later to ensure the ListView is fully updated before focusing
+            self.call_later(lv.focus)
 
     def _selected_note_id(self) -> UUID | None:
         task = self._get_task()
@@ -173,6 +183,33 @@ class TaskNotesScreen(ModalScreen[None]):
         if idx < 0 or idx >= len(task.notes):
             return None
         return task.notes[idx].id
+
+    def _update_selected_item(self, new_text: str) -> None:
+        """Update only the selected item without refreshing the whole list."""
+        lv = self.query_one("#notes_list", ListView)
+        idx = lv.index or 0
+        if idx < 0 or idx >= len(lv):
+            return
+        # Replace the item at the current index
+        old_item = lv.pop(idx)
+        new_item = ListItem(Static(new_text, markup=False))
+        lv.mount(new_item, before=idx)
+        lv.index = idx
+
+    def _remove_selected_item(self) -> None:
+        """Remove only the selected item without refreshing the whole list."""
+        lv = self.query_one("#notes_list", ListView)
+        idx = lv.index or 0
+        if idx < 0 or idx >= len(lv):
+            return
+        
+        # If this is the last note, do a full refresh to show the "No notes" message
+        if len(lv) == 1:
+            self._refresh()
+        else:
+            # Otherwise, just remove the item
+            lv.pop(idx)
+            lv.index = min(idx, len(lv) - 1)
 
     def action_new(self) -> None:
         screen = NoteEditorScreen(title="New note", initial_text="")
@@ -214,7 +251,7 @@ class TaskNotesScreen(ModalScreen[None]):
                     result.text,
                     now=utc_now(),
                 )
-                self._refresh()
+                self._update_selected_item(result.text)
                 self._notify("Note updated")
                 self._notify_changed()
             except Exception as e:  # noqa: BLE001
@@ -239,7 +276,7 @@ class TaskNotesScreen(ModalScreen[None]):
                 return
             try:
                 delete_task_note(self._repo, self._task_id, selected_note_id, now=utc_now())
-                self._refresh()
+                self._remove_selected_item()
                 self._notify("Note deleted")
                 self._notify_changed()
             except Exception as e:  # noqa: BLE001
