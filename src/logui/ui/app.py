@@ -25,7 +25,7 @@ from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
 from logui.infrastructure.services.sound import play_notification_sound
 from logui.ui.dates import fmt_day_header_en
 from logui.ui.screens.config import ConfigPane
-from logui.ui.screens.events import EventsPane, ensure_data_dir
+from logui.ui.screens.events import EventsPane
 from logui.ui.screens.files import FilesPane
 from logui.ui.screens.journal import JournalPane
 from logui.ui.screens.log import LogPane
@@ -35,7 +35,7 @@ from logui.usecases.event_notifications import (
     due_notifications,
     notification_key,
 )
-from logui.usecases.data_directory import get_expanded_data_directory
+from logui.usecases.data_directory import ensure_data_dir, get_expanded_data_directory
 from logui.domain.entities.bootstrap import BootstrapConfig
 from logui.domain.entities.config import AppConfig
 
@@ -277,6 +277,14 @@ class LogUIApp(App):
         
         # Every 15 seconds: check event notifications
         self._poll_event_notifications()
+
+        # Keep the Log screen fresh while it's visible.
+        try:
+            content = self.query_one("#content", ContentSwitcher)
+            if getattr(content, "current", None) == "log":
+                self.query_one("#log").refresh_log()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
         
         # Every 30 seconds (every 2nd call): check day rollover and update counts
         if self._poll_counter % 2 == 0:

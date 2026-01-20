@@ -23,8 +23,8 @@ from textual.widgets import (
 from logui.domain.entities.task import Task, TaskLink, TaskNote, TaskStatus
 from logui.domain.errors import ValidationError
 from logui.domain.ports.tasks import TaskRepository
-from logui.ui.dates import fmt_day_full_friendly
-from logui.ui.screens.events import fmt_day_short_friendly, parse_date_flexible, today_local
+from logui.ui.dates import fmt_day_full_friendly, fmt_day_short_friendly
+from logui.ui.parsing import parse_date_flexible, today_local
 from logui.ui.screens.modals import ConfirmScreen
 from logui.ui.screens.task_notes import TaskNotesScreen
 from logui.usecases.tasks import (

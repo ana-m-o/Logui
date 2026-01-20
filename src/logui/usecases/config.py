@@ -31,7 +31,9 @@ def update_editor(*, repo: ConfigRepository, command: str, args_text: str) -> Ap
     updated = AppConfig(
         schema_version=current.schema_version,
         editor=EditorConfig(command=cmd, args=args),
+        encryption=current.encryption,
         notifications=current.notifications,
+        data_directory=current.data_directory,
     )
     repo.save(updated)
     return updated
@@ -59,7 +61,9 @@ def set_all_day_notify_time(*, repo: ConfigRepository, hhmm: str) -> AppConfig:
     updated = AppConfig(
         schema_version=current.schema_version,
         editor=current.editor,
+        encryption=current.encryption,
         notifications=new_notifications,
+        data_directory=current.data_directory,
     )
     repo.save(updated)
     return updated
@@ -78,7 +82,9 @@ def set_default_notify_minutes_before(*, repo: ConfigRepository, minutes: int) -
     updated = AppConfig(
         schema_version=current.schema_version,
         editor=current.editor,
+        encryption=current.encryption,
         notifications=new_notifications,
+        data_directory=current.data_directory,
     )
     repo.save(updated)
     return updated

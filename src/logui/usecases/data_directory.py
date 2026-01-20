@@ -7,6 +7,11 @@ from logui.domain.entities.config import AppConfig
 from logui.domain.ports.config import ConfigRepository
 
 
+def ensure_data_dir(path: Path) -> None:
+    """Create the data directory if it doesn't exist (best effort)."""
+    path.mkdir(parents=True, exist_ok=True)
+
+
 def set_data_directory(
     repo: ConfigRepository, directory: str, move_files: bool = False, current_dir: Path | None = None
 ) -> None:

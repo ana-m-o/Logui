@@ -13,7 +13,7 @@ from textual.widgets import Input, Label, ListItem, ListView, Static, TextArea
 from logui.domain.errors import ValidationError
 from logui.domain.ports.journal import JournalRepository
 from logui.ui.dates import fmt_day_header_en, fmt_day_list_short_en
-from logui.ui.screens.events import parse_date_flexible, today_local
+from logui.ui.parsing import parse_date_flexible, today_local
 from logui.ui.screens.modals import ConfirmScreen
 
 

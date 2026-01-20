@@ -13,8 +13,8 @@ from logui.domain.entities.event import Event, EventNote
 from logui.domain.entities.task import Task, TaskNote, TaskStatus
 from logui.domain.ports.events import EventRepository
 from logui.domain.ports.tasks import TaskRepository
-from logui.ui.dates import fmt_day_compact_friendly
-from logui.ui.screens.events import fmt_day_full_friendly, today_local
+from logui.ui.dates import fmt_day_compact_friendly, fmt_day_full_friendly
+from logui.ui.parsing import today_local
 
 
 def _format_time(t) -> str:
@@ -84,11 +84,10 @@ class LogPane(Container):
     def on_mount(self) -> None:
         """Cargar log al montar."""
         self._load_log()
-        # Polling-based refresh (MVP): keeps Log in sync while app is open.
-        try:
-            self.set_interval(10, self._load_log)
-        except Exception:  # noqa: BLE001
-            pass
+
+    def refresh_log(self) -> None:
+        """Public refresh hook for the app-level polling loop."""
+        self._load_log()
 
     def on_day_rollover(self, *, today: date) -> None:  # noqa: ARG002
         self._load_log()
