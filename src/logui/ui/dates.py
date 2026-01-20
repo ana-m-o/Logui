@@ -32,16 +32,6 @@ _EN_WEEKDAYS_SHORT: dict[int, str] = {
     6: "Sun",
 }
 
-_ES_WEEKDAYS_SHORT: dict[int, str] = {
-    0: "Lun",
-    1: "Mar",
-    2: "Mié",
-    3: "Jue",
-    4: "Vie",
-    5: "Sáb",
-    6: "Dom",
-}
-
 
 def fmt_day_full_friendly(day: date) -> str:
     """Fixed format with year: `29 Dec, 2026`."""
