@@ -30,7 +30,7 @@ def parse_time_flexible(raw: str) -> time:
         if not (0 <= hh <= 23 and 0 <= mm <= 59):
             raise ValueError("out of range")
         return time(hh, mm)
-    except Exception as e:  # noqa: BLE001
+    except (TypeError, ValueError) as e:
         raise ValidationError("Invalid time") from e
 
 
@@ -42,7 +42,7 @@ def parse_date_flexible(raw: str, *, today: date) -> date:
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
         try:
             return datetime.strptime(s, fmt).date()
-        except Exception:  # noqa: BLE001
+        except ValueError:
             continue
 
     def _add_months(year: int, month: int, *, add: int) -> tuple[int, int]:
@@ -58,13 +58,13 @@ def parse_date_flexible(raw: str, *, today: date) -> date:
         month = int(m.group(2))
         try:
             cand = date(today.year, month, day)
-        except Exception as e:  # noqa: BLE001
+        except ValueError as e:
             raise ValidationError("Invalid date") from e
 
         if cand < today:
             try:
                 return date(today.year + 1, month, day)
-            except Exception as e:  # noqa: BLE001
+            except ValueError as e:
                 raise ValidationError("Invalid date") from e
         return cand
 
@@ -75,13 +75,13 @@ def parse_date_flexible(raw: str, *, today: date) -> date:
         day = int(m.group(2))
         try:
             cand = date(today.year, month, day)
-        except Exception as e:  # noqa: BLE001
+        except ValueError as e:
             raise ValidationError("Invalid date") from e
 
         if cand < today:
             try:
                 return date(today.year + 1, month, day)
-            except Exception as e:  # noqa: BLE001
+            except ValueError as e:
                 raise ValidationError("Invalid date") from e
         return cand
 
@@ -95,7 +95,7 @@ def parse_date_flexible(raw: str, *, today: date) -> date:
             y, mo = _add_months(today.year, today.month, add=add)
             try:
                 cand = date(y, mo, day)
-            except Exception:
+            except ValueError:
                 continue
             if cand >= today:
                 return cand

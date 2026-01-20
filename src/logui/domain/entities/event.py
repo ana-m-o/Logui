@@ -53,7 +53,7 @@ class EventNote:
                 text=str(data["text"]),
                 created_at=_parse_dt_utc(data["created_at"]),
             )
-        except Exception as e:  # noqa: BLE001
+        except (KeyError, TypeError, ValueError) as e:
             raise ValidationError(f"Invalid EventNote: {e}") from e
 
 
@@ -175,7 +175,7 @@ class Event:
             return ev
         except ValidationError:
             raise
-        except Exception as e:  # noqa: BLE001
+        except (KeyError, TypeError, ValueError) as e:
             raise ValidationError(f"Invalid Event: {e}") from e
 
     def _validate_all(self) -> None:
@@ -212,7 +212,7 @@ def _parse_time(raw: Any) -> time | None:
         # Accept HH:MM
         hour_s, minute_s = s.split(":", 1)
         return time(hour=int(hour_s), minute=int(minute_s))
-    except Exception as e:  # noqa: BLE001
+    except (TypeError, ValueError) as e:
         raise ValidationError(f"Invalid time: {raw} ({e})") from e
 
 

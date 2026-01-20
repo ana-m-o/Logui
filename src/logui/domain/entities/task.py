@@ -53,7 +53,7 @@ class TaskLink:
     def from_dict(data: dict[str, Any]) -> "TaskLink":
         try:
             return TaskLink.create(str(data.get("url") or ""), text=(data.get("text") or None))
-        except Exception as e:  # noqa: BLE001
+        except (TypeError, ValueError) as e:
             raise ValidationError(f"Invalid TaskLink: {e}") from e
 
 
@@ -86,7 +86,7 @@ class TaskNote:
         try:
             created_at = _parse_dt_utc(data["created_at"])
             return TaskNote(id=UUID(data["id"]), text=str(data["text"]), created_at=created_at)
-        except Exception as e:  # noqa: BLE001
+        except (KeyError, TypeError, ValueError) as e:
             raise ValidationError(f"Invalid TaskNote: {e}") from e
 
 
@@ -208,7 +208,7 @@ class Task:
             return task
         except ValidationError:
             raise
-        except Exception as e:  # noqa: BLE001
+        except (KeyError, TypeError, ValueError) as e:
             raise ValidationError(f"Invalid Task: {e}") from e
 
     def _validate_invariants(self) -> None:
