@@ -17,6 +17,7 @@ from textual.containers import Container, Horizontal
 from textual.widgets import ContentSwitcher, Footer, Header, ListItem, ListView, Static
 
 from logui.infrastructure.repositories.config_repo_json import JsonConfigRepository
+from logui.infrastructure.repositories.bootstrap_repo_json import JsonBootstrapRepository
 from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
 from logui.infrastructure.repositories.files_repo_fs import FsFilesRepository
 from logui.infrastructure.repositories.journal_repo_json import JsonJournalRepository
@@ -34,6 +35,9 @@ from logui.usecases.event_notifications import (
     due_notifications,
     notification_key,
 )
+from logui.usecases.data_directory import get_expanded_data_directory
+from logui.domain.entities.bootstrap import BootstrapConfig
+from logui.domain.entities.config import AppConfig
 
 
 def _get_project_info() -> tuple[str, str]:
@@ -115,15 +119,42 @@ class LogUIApp(App):
         super().__init__(**kwargs)
         name, _version = _get_project_info()
         self.title = name
-        self._data_dir = self._default_data_dir()
+
+        # Bootstrap: keep a tiny bootstrap.json in the default directory so the app
+        # can discover the user-configured data directory on startup.
+        default_dir = self._default_data_dir()
+        ensure_data_dir(default_dir)
+        self._bootstrap_repo = JsonBootstrapRepository(default_dir / "bootstrap.json")
+        bootstrap = self._bootstrap_repo.load()
+
+        # Data directory (events/tasks/journal/files + full config)
+        # If bootstrap has no override, fall back to default_dir (important for tests).
+        self._data_dir = (
+            Path(bootstrap.data_directory).expanduser().resolve()
+            if bootstrap.data_directory
+            else default_dir.expanduser().resolve()
+        )
         ensure_data_dir(self._data_dir)
+
+        # Full config lives inside the data directory.
+        self._config_repo = JsonConfigRepository(self._data_dir / "config.json")
+        config = self._config_repo.load()
+
+        # Backward/compat: if old config had data_directory set, prefer it and
+        # write it to bootstrap so future startups use it.
+        legacy_dir = get_expanded_data_directory(config, fallback=self._data_dir)
+        if legacy_dir != self._data_dir:
+            self._data_dir = legacy_dir
+            ensure_data_dir(self._data_dir)
+            self._bootstrap_repo.save(BootstrapConfig(data_directory=str(legacy_dir)))
+            self._config_repo = JsonConfigRepository(self._data_dir / "config.json")
+            config = self._config_repo.load()
 
         files_dir = self._data_dir / "files"
         files_dir.mkdir(parents=True, exist_ok=True)
         self._events_repo = JsonEventRepository(self._data_dir / "events.json")
         self._tasks_repo = JsonTaskRepository(self._data_dir / "tasks.json")
         self._journal_repo = JsonJournalRepository(self._data_dir / "journal.json")
-        self._config_repo = JsonConfigRepository(self._data_dir / "config.json")
         self._files_repo = FsFilesRepository(files_dir)
         self._sent_notification_keys: set[str] = set()
         logui_dir = Path(__file__).resolve().parents[1]
@@ -133,6 +164,63 @@ class LogUIApp(App):
         # without requiring a restart.
         self._ui_day: date = datetime.now().date()
         self._poll_counter: int = 0  # Counter for 30-second tasks
+
+    def change_data_directory(self, *, new_dir: str, move_files: bool) -> bool:
+        """Update bootstrap data dir and copy data/config as requested.
+
+        Returns True if the change was applied, False if it was a no-op.
+        """
+        raw = (new_dir or "").strip()
+        if not raw:
+            return False
+
+        current_dir = self._data_dir.expanduser().resolve()
+        target_dir = Path(raw).expanduser().resolve()
+        if target_dir == current_dir:
+            return False
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        # Always move/copy the *full config* to the new data directory.
+        # This is approach (1): the data directory contains the real config.
+        try:
+            current_config = self._config_repo.load()
+            # Ensure we don't keep a recursive override in the full config.
+            cleaned_config = AppConfig(
+                schema_version=current_config.schema_version,
+                editor=current_config.editor,
+                encryption=current_config.encryption,
+                notifications=current_config.notifications,
+                data_directory=None,
+            )
+            JsonConfigRepository(target_dir / "config.json").save(cleaned_config)
+        except Exception:  # noqa: BLE001
+            pass
+
+        if move_files:
+            # Copy everything from current data dir into the new dir, but keep
+            # the target config.json we just wrote (settings should come along).
+            for item in current_dir.iterdir():
+                if item.name == "config.json":
+                    continue
+                dest = target_dir / item.name
+                try:
+                    if item.is_file():
+                        import shutil
+
+                        shutil.copy2(item, dest)
+                    elif item.is_dir():
+                        import shutil
+
+                        if dest.exists():
+                            shutil.rmtree(dest)
+                        shutil.copytree(item, dest)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        # Update bootstrap pointer.
+        self._bootstrap_repo.save(BootstrapConfig(data_directory=str(target_dir)))
+        return True
 
     def compose(self) -> ComposeResult:
         """Create widgets."""

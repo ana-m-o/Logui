@@ -118,6 +118,15 @@ ListView {
         }
     }
 
+    .button_row {
+        height: auto;
+        margin-top: 1;
+    }
+
+    .button_row Button {
+        width: 1fr;
+    }
+
     .modal_w80 {
         width: 80;
     }

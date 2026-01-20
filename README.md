@@ -94,13 +94,36 @@ pytest
 
 ## Persistence
 
-Data is stored in JSON under `~/.logui/` (home directory):
+By default, LogUI stores data under `~/.logui/` (home directory).
+
+LogUI also supports a **custom data directory**. To make startup reliable (so the app always knows where to find your data), LogUI uses a small **bootstrap** file in the default location:
+
+- `~/.logui/bootstrap.json`: points to the active data directory (when configured)
+
+The *actual* data files live in the active data directory:
 
 - `config.json`: General configuration
 - `tasks.json`: Persistent tasks
 - `events.json`: Events
 - `journal.json`: Journal entries by date
 - `files/`: Managed `.txt` files
+
+If you never change the data directory, everything (including `bootstrap.json`) simply lives under `~/.logui/`.
+
+### Changing the data directory
+
+You can change the data directory from inside the app:
+
+1. Open **Config/Help** (`?`)
+2. Select **Data directory** and press `e` / `enter`
+3. Enter the new path and confirm
+
+When you confirm, LogUI will ask whether you want to migrate existing data to the new directory.
+
+- If you choose **Yes**, LogUI copies existing data files into the new directory.
+- If you choose **No**, LogUI will start using the new directory (and write a fresh `config.json` there), but existing data will remain in the old directory.
+
+After changing, LogUI updates `~/.logui/bootstrap.json` so future launches keep using the selected directory.
 
 Note about the editor: by default, `nano` is used, but if the configured editor does not exist on your system, LogUI will try to detect another available editor (including `VISUAL`/`EDITOR`) and save it in `config.json`.
 

@@ -96,6 +96,8 @@ class AppConfig:
     editor: EditorConfig = EditorConfig()
     encryption: EncryptionConfig = EncryptionConfig()
     notifications: NotificationsConfig = NotificationsConfig()
+    # If None/empty, the app will use its default data directory.
+    data_directory: str | None = None
 
     @staticmethod
     def default() -> "AppConfig":
@@ -113,17 +115,25 @@ class AppConfig:
         notifications = NotificationsConfig.from_dict(
             data.get("notifications") if isinstance(data.get("notifications"), dict) else None
         )
+        raw_data_directory = data.get("data_directory")
+        data_directory = str(raw_data_directory).strip() if raw_data_directory is not None else ""
+        if not data_directory:
+            data_directory = None
         return AppConfig(
             schema_version=schema_version,
             editor=editor,
             encryption=encryption,
             notifications=notifications,
+            data_directory=data_directory,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        doc: dict[str, Any] = {
             "schema_version": int(self.schema_version),
             "editor": self.editor.to_dict(),
             "encryption": self.encryption.to_dict(),
             "notifications": self.notifications.to_dict(),
         }
+        if self.data_directory:
+            doc["data_directory"] = str(self.data_directory)
+        return doc

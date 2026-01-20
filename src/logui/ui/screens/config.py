@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Input, Label, ListItem, ListView, Static
+from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
 from logui.domain.entities.config import AppConfig
 from logui.domain.ports.config import ConfigRepository
@@ -114,6 +115,61 @@ class SimpleTextInputScreen(ModalScreen[TextFormResult | None]):
         self.dismiss(None)
 
 
+class MoveDataConfirmationScreen(ModalScreen[bool | None]):
+    """Screen to confirm moving data files to new directory."""
+    
+    BINDINGS = [
+        Binding("y", "confirm_yes", "Yes", show=False),
+        Binding("n", "confirm_no", "No", show=False),
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+    
+    def __init__(self, current_dir: str, new_dir: str):
+        super().__init__()
+        self._current_dir = current_dir
+        self._new_dir = new_dir
+        self.add_class("modal")
+    
+    def compose(self) -> ComposeResult:
+        yield Container(
+            Label("Move existing data?", classes="modal_title"),
+            Static(
+                f"Current directory: {self._current_dir}\n"
+                f"New directory: {self._new_dir}\n\n"
+                "Do you want to copy all existing data files to the new location?\n\n"
+                "This will copy events, tasks, journal, and files.\n\n"
+                "y = copy • n = don't copy • esc = cancel",
+                classes="modal_help",
+                markup=False,
+            ),
+            Horizontal(
+                Button("Yes, move data", id="btn_yes", variant="primary"),
+                Button("No, start fresh", id="btn_no", variant="default"),
+                Button("Cancel", id="btn_cancel", variant="default"),
+                classes="button_row",
+            ),
+            id="move_confirm",
+            classes="modal_box modal_w80",
+        )
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn_yes":
+            self.dismiss(True)
+        elif event.button.id == "btn_no":
+            self.dismiss(False)
+        else:
+            self.dismiss(None)
+    
+    def action_confirm_yes(self) -> None:
+        self.dismiss(True)
+    
+    def action_confirm_no(self) -> None:
+        self.dismiss(False)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class _ConfigRow(ListItem):
     def __init__(self, *, key: str, title: str, value: str):
         super().__init__()
@@ -150,7 +206,7 @@ class ConfigPane(Container):
             Horizontal(Label("Config / Help"), classes="page_header"),
             Static(help_text, classes="page_help", markup=False),
             VerticalScroll(
-                Static(f"Data directory: {self._data_dir_text}", markup=False),
+                Static(f"Data directory: {self._data_dir_text}", id="data_dir_header", markup=False),
                 Label("Configuration"),
                 ListView(id="config_list"),
                 Label("Help"),
@@ -189,9 +245,17 @@ class ConfigPane(Container):
         args_text = " ".join(args) if args else "(no args)"
         all_day = (self._config.notifications.all_day_notify_time or "09:00").strip() or "09:00"
         default_mins = int(self._config.notifications.default_minutes_before)
+        data_dir = self._data_dir_text
+
+        try:
+            header = self.query_one("#data_dir_header", Static)
+            header.update(f"Data directory: {self._data_dir_text}")
+        except Exception:  # noqa: BLE001
+            pass
 
         lv = self.query_one("#config_list", ListView)
         lv.clear()
+        lv.append(_ConfigRow(key="data_directory", title="Data directory", value=data_dir))
         lv.append(_ConfigRow(key="editor", title="Editor", value=f"{editor_cmd}  {args_text}"))
         lv.append(
             _ConfigRow(key="all_day_notify_time", title="All-day notify time", value=all_day)
@@ -239,6 +303,78 @@ class ConfigPane(Container):
     def action_edit(self) -> None:
         key = self._selected_key()
         if not key:
+            return
+
+        if key == "data_directory":
+            initial = self._data_dir_text
+
+            def _on_done(res: TextFormResult | None) -> None:
+                if res is None:
+                    return
+                new_dir = (res.value or "").strip()
+                if not new_dir:
+                    self._notify("Directory cannot be empty")
+                    return
+                
+                # Ask if user wants to move existing data
+                current_dir_str = self._data_dir_text
+                try:
+                    current_dir_path = Path(current_dir_str).expanduser().resolve()
+                except Exception:  # noqa: BLE001
+                    current_dir_path = Path(current_dir_str)
+                new_dir_path = Path(new_dir).expanduser().resolve()
+                new_dir_expanded = str(new_dir_path)
+
+                # If the resolved path hasn't changed, treat as cancel: no save, no toast.
+                if current_dir_path == new_dir_path:
+                    return
+                
+                def _on_move_confirm(move_files: bool | None) -> None:
+                    if move_files is None:
+                        return
+
+                    changer = getattr(self.app, "change_data_directory", None)
+                    if not callable(changer):
+                        self._notify("Cannot change data directory in this app")
+                        return
+
+                    applied = changer(new_dir=new_dir, move_files=bool(move_files))
+                    if not applied:
+                        return
+
+                    # Update displayed value immediately (restart still required).
+                    self._data_dir_text = new_dir_expanded
+                    
+                    if move_files:
+                        self._notify(
+                            "Data directory updated and files copied. "
+                            "Please restart the app for changes to take effect."
+                        )
+                    else:
+                        self._notify(
+                            "Data directory updated. "
+                            "Please restart the app for changes to take effect."
+                        )
+                    self.call_later(self._refresh)
+                
+                # Show confirmation dialog
+                self.app.push_screen(
+                    MoveDataConfirmationScreen(
+                        current_dir=current_dir_str,
+                        new_dir=new_dir_expanded
+                    ),
+                    callback=_on_move_confirm
+                )
+
+            self.app.push_screen(
+                SimpleTextInputScreen(
+                    title="Data directory",
+                    label="Directory path (use ~/ for home)",
+                    initial=initial,
+                    placeholder="~/.logui",
+                ),
+                callback=_on_done,
+            )
             return
 
         if key == "editor":
