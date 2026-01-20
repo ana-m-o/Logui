@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
-from pathlib import Path
+from datetime import date, datetime, time
 
 from textual import events
 from textual.app import ComposeResult
@@ -20,17 +18,8 @@ from textual.widgets import (
 )
 
 from logui.domain.entities.event import Event, EventNote
-from logui.domain.errors import ValidationError
 from logui.domain.ports.events import EventRepository
-from logui.ui.dates import (
-    fmt_day_compact_friendly as _fmt_day_compact_friendly,
-)
-from logui.ui.dates import (
-    fmt_day_full_friendly as _fmt_day_full_friendly,
-)
-from logui.ui.dates import (
-    fmt_day_short_friendly as _fmt_day_short_friendly,
-)
+from logui.ui.dates import fmt_day_compact_friendly
 from logui.ui.screens.event_notes import EventNotesScreen
 from logui.ui.screens.modals import ConfirmScreen
 from logui.usecases.events import (
@@ -41,335 +30,31 @@ from logui.usecases.events import (
     update_event,
 )
 
-
-@dataclass(frozen=True)
-class EndSyncResult:
-    end_day_value: str | None
-    end_time_value: str | None
-    duration_minutes: int | None
-    end_day_autofilled: bool
-
-
-def _is_time_input_ambiguous(raw: str) -> bool:
-    """Check if a time input is ambiguous (could have more digits coming).
-    
-    Only single digits "1" or "2" are ambiguous (could be 10, 11, 12, etc.).
-    Other single digits (3-9) are unambiguous.
-    
-    Examples:
-    - "1" -> True (could be 1:00, 10:00, 11:00, etc.)
-    - "2" -> True (could be 2:00, 20:00, 21:00, etc.)
-    - "3" -> False (can only be 3:00)
-    - "11" -> False (clearly 11:00)
-    - "1:" -> False (user explicitly added colon)
-    - "1:3" -> False (user is specifying minutes)
-    """
-    s = (raw or "").strip()
-    if not s:
-        return False
-    # If it contains a colon, it's explicit
-    if ":" in s:
-        return False
-    # Only single digits "1" or "2" are ambiguous
-    if len(s) == 1 and s in ("1", "2"):
-        return True
-    return False
-
-
-def _infer_end_day_offset_for_duration(
-    *,
-    start_t: time,
-    end_t: time,
-    end_day: date | None,
-    start_day: date,
-) -> int:
-    if end_day is None:
-        return 1 if end_t < start_t else 0
-    return (end_day - start_day).days
-
-
-def _compute_duration_minutes(
-    *,
-    start_day: date,
-    start_t: time,
-    end_t: time,
-    end_day_offset: int,
-) -> int | None:
-    if end_day_offset < 0:
-        return None
-    start_dt = datetime.combine(start_day, start_t)
-    end_dt = datetime.combine(start_day, end_t) + timedelta(days=end_day_offset)
-    delta = end_dt - start_dt
-    minutes = int(delta.total_seconds() // 60)
-    if minutes < 0:
-        return None
-    return minutes
+from logui.ui.parsing import parse_date_flexible, today_local
+from logui.ui.event_hints import build_end_day_hint_text, build_start_day_hint_text
+from logui.ui.event_end_sync import _is_time_input_ambiguous, _sync_end_fields_logic
+from logui.ui.event_form_submit import parse_event_form_submission
+from logui.ui.event_row_format import (
+    event_notify_glyph,
+    format_event_notes_block,
+    format_event_row,
+)
+from logui.ui.event_sorting import event_list_sort_key
+from logui.ui.event_temporal import (
+    is_visible_in_events_pane,
+    temporal_classnames,
+)
+from logui.ui.event_end_day_shift import maybe_shift_end_day_on_start_day_change
+from logui.ui.event_form_state import (
+    initial_duration_minutes,
+    initial_end_day_default,
+    initial_last_sync_end_day,
+)
 
 
 def _format_event_notes_block(notes: list[EventNote]) -> str:
-    lines: list[str] = []
-    for n in notes:
-        text = (n.text or "").strip()
-        if not text:
-            continue
-        lines.append(f"- {text}")
-    return "\n".join(lines)
-
-
-def _sync_end_fields_logic(
-    *,
-    changed_id: str,
-    start_day: date,
-    start_time_raw: str,
-    end_day_raw: str,
-    end_time_raw: str,
-    duration_minutes: int | None,
-    end_day_autofilled: bool,
-    today: date,
-) -> EndSyncResult:
-    """Pure sync logic for end fields.
-
-    Rules:
-    - Do not auto-fill end_time when empty.
-    - If start changes and end_time exists, update end_time to preserve stored duration.
-    - Do not auto-fill end_day unless rollover (+1 day) is required.
-    """
-
-    start_time_s = (start_time_raw or "").strip()
-    end_time_s = (end_time_raw or "").strip()
-    end_day_s = (end_day_raw or "").strip()
-
-    if not start_time_s:
-        return EndSyncResult(None, None, duration_minutes, end_day_autofilled)
-
-    try:
-        start_t = parse_time_flexible(start_time_s)
-    except Exception:  # noqa: BLE001
-        return EndSyncResult(None, None, duration_minutes, end_day_autofilled)
-
-    parsed_end_day: date | None = None
-    if end_day_s:
-        try:
-            parsed_end_day = parse_date_flexible(end_day_s, today=today)
-        except Exception:  # noqa: BLE001
-            parsed_end_day = None
-
-    # If user changes end_time, update stored duration (when possible) and set end_day only
-    # when rollover is necessary.
-    if changed_id == "end_time":
-        if not end_time_s:
-            # If user clears end_time, don't fight their edits by changing end_day.
-            return EndSyncResult(None, None, None, end_day_autofilled)
-
-        # If the input is ambiguous (e.g., single digit like "1"), don't apply rollover logic yet.
-        # This prevents the issue where typing "11" triggers rollover on the first "1".
-        if _is_time_input_ambiguous(end_time_s):
-            # Still try to parse and update duration, but don't auto-fill end_day
-            try:
-                end_t = parse_time_flexible(end_time_s)
-            except Exception:  # noqa: BLE001
-                return EndSyncResult(None, None, duration_minutes, end_day_autofilled)
-
-            # If end_day was previously autofilled and the user is typing a new time,
-            # we should clear it to avoid confusion.
-            if end_day_autofilled:
-                return EndSyncResult("", None, None, False)
-            
-            # Otherwise, just keep things as they are without auto-filling
-            return EndSyncResult(None, None, duration_minutes, end_day_autofilled)
-
-        try:
-            end_t = parse_time_flexible(end_time_s)
-        except Exception:  # noqa: BLE001
-            return EndSyncResult(None, None, duration_minutes, end_day_autofilled)
-
-        end_day_offset = _infer_end_day_offset_for_duration(
-            start_t=start_t,
-            end_t=end_t,
-            end_day=parsed_end_day,
-            start_day=start_day,
-        )
-        new_duration = _compute_duration_minutes(
-            start_day=start_day,
-            start_t=start_t,
-            end_t=end_t,
-            end_day_offset=end_day_offset,
-        )
-
-        # Auto-fill end_day only if needed AND the field is currently empty.
-        if not end_day_s and end_day_offset == 1:
-            return EndSyncResult(
-                start_day.fromordinal(start_day.toordinal() + 1).isoformat(),
-                None,
-                new_duration,
-                True,
-            )
-
-        # If we had previously auto-filled end_day and rollover is no longer needed, clear it.
-        if end_day_autofilled and end_day_offset == 0:
-            # In edit mode we keep end_day filled; when no rollover is needed it should
-            # match start_day.
-            return EndSyncResult(start_day.isoformat(), None, new_duration, True)
-
-        return EndSyncResult(None, None, new_duration, end_day_autofilled)
-
-    # If user changes end_day manually, we don't override fields; just update duration if possible.
-    if changed_id == "end_day":
-        if not end_time_s:
-            return EndSyncResult(None, None, duration_minutes, False)
-        try:
-            end_t = parse_time_flexible(end_time_s)
-        except Exception:  # noqa: BLE001
-            return EndSyncResult(None, None, duration_minutes, False)
-
-        end_day_offset = _infer_end_day_offset_for_duration(
-            start_t=start_t,
-            end_t=end_t,
-            end_day=parsed_end_day,
-            start_day=start_day,
-        )
-        new_duration = _compute_duration_minutes(
-            start_day=start_day,
-            start_t=start_t,
-            end_t=end_t,
-            end_day_offset=end_day_offset,
-        )
-        return EndSyncResult(None, None, new_duration, False)
-
-    # start_day / start_time changed
-    if not end_time_s:
-        # Important: do NOT auto-fill end_time. Defaults are applied on submit.
-        return EndSyncResult(None, None, duration_minutes, end_day_autofilled)
-
-    if duration_minutes is None:
-        return EndSyncResult(None, None, duration_minutes, end_day_autofilled)
-
-    new_end_dt = datetime.combine(start_day, start_t) + timedelta(minutes=duration_minutes)
-    new_end_t = new_end_dt.time()
-    new_offset = (new_end_dt.date() - start_day).days
-
-    end_day_value: str | None = None
-    autofilled = end_day_autofilled
-    if end_day_autofilled:
-        if new_offset >= 0:
-            end_day_value = start_day.fromordinal(start_day.toordinal() + new_offset).isoformat()
-            autofilled = True
-    else:
-        if not end_day_s and new_offset == 1:
-            end_day_value = start_day.fromordinal(start_day.toordinal() + 1).isoformat()
-            autofilled = True
-
-    if new_offset < 0:
-        return EndSyncResult(None, None, duration_minutes, end_day_autofilled)
-
-    return EndSyncResult(end_day_value, new_end_t.strftime("%H:%M"), duration_minutes, autofilled)
-
-
-def today_local() -> date:
-    return datetime.now().date()
-
-
-def parse_time_flexible(raw: str) -> time:
-    s = (raw or "").strip()
-    if not s:
-        raise ValidationError("time is empty")
-    if ":" not in s:
-        s = f"{s}:00"
-    try:
-        hh_s, mm_s = s.split(":", 1)
-        hh = int(hh_s)
-        mm = int(mm_s)
-        if not (0 <= hh <= 23 and 0 <= mm <= 59):
-            raise ValueError("out of range")
-        return time(hh, mm)
-    except Exception as e:  # noqa: BLE001
-        raise ValidationError("Invalid time") from e
-
-
-def parse_date_flexible(raw: str, *, today: date) -> date:
-    s = (raw or "").strip()
-    if not s:
-        raise ValidationError("date is empty")
-
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
-        try:
-            return datetime.strptime(s, fmt).date()
-        except Exception:  # noqa: BLE001
-            continue
-
-    def _add_months(year: int, month: int, *, add: int) -> tuple[int, int]:
-        total = (year * 12) + (month - 1) + add
-        new_year = total // 12
-        new_month = (total % 12) + 1
-        return new_year, new_month
-
-    # DD/MM -> next occurrence (if already passed this year, use next year)
-    m = re.fullmatch(r"\s*(\d{1,2})/(\d{1,2})\s*", s)
-    if m:
-        day = int(m.group(1))
-        month = int(m.group(2))
-        try:
-            cand = date(today.year, month, day)
-        except Exception as e:  # noqa: BLE001
-            raise ValidationError("Invalid date") from e
-
-        if cand < today:
-            try:
-                return date(today.year + 1, month, day)
-            except Exception as e:  # noqa: BLE001
-                raise ValidationError("Invalid date") from e
-        return cand
-
-    # MM-DD -> next occurrence (if already passed this year, use next year)
-    m = re.fullmatch(r"\s*(\d{1,2})-(\d{1,2})\s*", s)
-    if m:
-        month = int(m.group(1))
-        day = int(m.group(2))
-        try:
-            cand = date(today.year, month, day)
-        except Exception as e:  # noqa: BLE001
-            raise ValidationError("Invalid date") from e
-
-        if cand < today:
-            try:
-                return date(today.year + 1, month, day)
-            except Exception as e:  # noqa: BLE001
-                raise ValidationError("Invalid date") from e
-        return cand
-
-    # DD -> next occurrence (if already passed this month, use next month)
-    m = re.fullmatch(r"\s*(\d{1,2})\s*", s)
-    if m:
-        day = int(m.group(1))
-
-        start_add = 0 if day >= today.day else 1
-        for add in range(start_add, 24):
-            y, mo = _add_months(today.year, today.month, add=add)
-            try:
-                cand = date(y, mo, day)
-            except Exception:
-                continue
-            if cand >= today:
-                return cand
-
-        raise ValidationError("Invalid date")
-
-    raise ValidationError("Invalid date")
-
-
-def _add_1h_with_day_rollover(start_t: time) -> tuple[time, int]:
-    base = datetime(2000, 1, 1, start_t.hour, start_t.minute)
-    end = base + timedelta(hours=1)
-    offset = 1 if end.date() != base.date() else 0
-    return end.time(), offset
-
-
-def fmt_day_full_friendly(day: date) -> str:
-    return _fmt_day_full_friendly(day)
-
-
-def fmt_day_short_friendly(day: date, *, today: date) -> str:
-    return _fmt_day_short_friendly(day, today=today)
+    # Keep this symbol for tests/import stability.
+    return format_event_notes_block(notes)
 
 
 def _build_start_day_hint_text(
@@ -379,57 +64,12 @@ def _build_start_day_hint_text(
     initial_start_day: date,
     today: date,
 ) -> str:
-    start_day_s = (start_day_raw or "").strip()
-    start_time_s = (start_time_raw or "").strip()
-
-    start_time_label = ""
-    if start_time_s:
-        try:
-            start_t = parse_time_flexible(start_time_s)
-        except Exception:  # noqa: BLE001
-            start_t = None
-        if start_t is not None:
-            start_time_label = f" {start_t.strftime('%H:%M')}"
-
-    # Determine effective start day (matches submit behavior).
-    if not start_day_s:
-        # Empty date always means today (matches _submit behavior)
-        effective_day = today
-        if effective_day == today:
-            day_label = f"Today, {effective_day.year}"
-        else:
-            day_label = fmt_day_short_friendly(effective_day, today=today)
-    else:
-        try:
-            effective_day = parse_date_flexible(start_day_s, today=today)
-        except Exception:  # noqa: BLE001
-            return ""
-        day_label = fmt_day_short_friendly(effective_day, today=today)
-
-    all_day = not bool(start_time_label)
-    suffix = " (all day)" if all_day else start_time_label
-
-    # If date is empty (default = today) and the user enters a past time,
-    # show a warning in the same style as past-date warnings.
-    if start_time_s and not start_day_s:
-        actual_today = datetime.now().date()
-        if today == actual_today:
-            try:
-                start_t = parse_time_flexible(start_time_s)
-            except Exception:  # noqa: BLE001
-                start_t = None
-            if start_t is not None:
-                now = datetime.now().time()
-                now_min = time(now.hour, now.minute)
-                if start_t < now_min:
-                    return (
-                        f"[dim]{fmt_day_full_friendly(today)} {start_t.strftime('%H:%M')} "
-                        f"(is a past time)[/dim]"
-                    )
-
-    if start_day_s and effective_day < today:
-        return f"[dim]{fmt_day_full_friendly(effective_day)}{suffix} (is a past date)[/dim]"
-    return f"[dim]{day_label}{suffix}[/dim]"
+    return build_start_day_hint_text(
+        start_day_raw=start_day_raw,
+        start_time_raw=start_time_raw,
+        initial_start_day=initial_start_day,
+        today=today,
+    )
 
 
 def _build_end_day_hint_text(
@@ -441,61 +81,13 @@ def _build_end_day_hint_text(
     initial_start_day: date,
     today: date,
 ) -> str:
-    start_day_s = (start_day_raw or "").strip()
-    end_day_s = (end_day_raw or "").strip()
-    start_time_s = (start_time_raw or "").strip()
-    end_time_s = (end_time_raw or "").strip()
-
-    start_day = initial_start_day
-    if start_day_s:
-        try:
-            start_day = parse_date_flexible(start_day_s, today=today)
-        except Exception:  # noqa: BLE001
-            return ""
-
-    # Only hide for single-day all-day events.
-    if not start_time_s and not end_day_s:
-        return ""
-
-    end_day = start_day
-    if end_day_s:
-        try:
-            end_day = parse_date_flexible(end_day_s, today=today)
-        except Exception:  # noqa: BLE001
-            return ""
-
-    if not start_time_s:
-        return f"[dim]{fmt_day_short_friendly(end_day, today=today)} (all day)[/dim]"
-
-    try:
-        start_t = parse_time_flexible(start_time_s)
-    except Exception:  # noqa: BLE001
-        return ""
-
-    end_t: time | None = None
-    defaulted = False
-
-    if end_time_s:
-        try:
-            end_t = parse_time_flexible(end_time_s)
-        except Exception:  # noqa: BLE001
-            end_t = None
-    else:
-        end_t, inferred_offset = _add_1h_with_day_rollover(start_t)
-        defaulted = True
-        if not end_day_s:
-            end_day = start_day.fromordinal(start_day.toordinal() + inferred_offset)
-
-    # If end_time is present but end_day is empty, infer rollover (+1) only.
-    if end_t is not None and end_time_s and not end_day_s and end_t < start_t:
-        end_day = start_day.fromordinal(start_day.toordinal() + 1)
-
-    if end_t is None:
-        return f"[dim]{fmt_day_short_friendly(end_day, today=today)}[/dim]"
-
-    tag = " (default +1h)" if defaulted else ""
-    return (
-        f"[dim]{fmt_day_short_friendly(end_day, today=today)} {end_t.strftime('%H:%M')}{tag}[/dim]"
+    return build_end_day_hint_text(
+        start_day_raw=start_day_raw,
+        end_day_raw=end_day_raw,
+        start_time_raw=start_time_raw,
+        end_time_raw=end_time_raw,
+        initial_start_day=initial_start_day,
+        today=today,
     )
 
 
@@ -534,37 +126,25 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
         self._end_day_autofilled = bool(self._prefill_dates)
 
         self._last_sync_start_day: date = self._initial.start_day
-        self._last_sync_end_day: date | None = None
-        if self._prefill_dates:
-            if self._initial.end_day_offset == 1:
-                self._last_sync_end_day = self._initial.start_day.fromordinal(
-                    self._initial.start_day.toordinal() + 1
-                )
-            elif self._initial.end_day_offset == 0:
-                self._last_sync_end_day = self._initial.start_day
+        self._last_sync_end_day = initial_last_sync_end_day(
+            start_day=self._initial.start_day,
+            end_day_offset=self._initial.end_day_offset,
+            prefill_dates=self._prefill_dates,
+        )
 
-        self._duration_minutes: int | None = None
-        if (
-            self._initial.start_time is not None
-            and self._initial.end_time is not None
-            and self._initial.end_day_offset >= 0
-        ):
-            self._duration_minutes = _compute_duration_minutes(
-                start_day=self._initial.start_day,
-                start_t=self._initial.start_time,
-                end_t=self._initial.end_time,
-                end_day_offset=self._initial.end_day_offset,
-            )
+        self._duration_minutes = initial_duration_minutes(
+            start_day=self._initial.start_day,
+            start_time=self._initial.start_time,
+            end_time=self._initial.end_time,
+            end_day_offset=self._initial.end_day_offset,
+        )
 
     def compose(self) -> ComposeResult:
         start_day_value = self._initial.start_day.isoformat() if self._prefill_dates else ""
-        end_day_default = None
-        if self._initial.end_day_offset == 1:
-            end_day_default = self._initial.start_day.fromordinal(
-                self._initial.start_day.toordinal() + 1
-            )
-        elif self._initial.end_day_offset == 0:
-            end_day_default = self._initial.start_day
+        end_day_default = initial_end_day_default(
+            start_day=self._initial.start_day,
+            end_day_offset=self._initial.end_day_offset,
+        )
         end_day_value = ""
         if self._prefill_dates and end_day_default is not None:
             end_day_value = end_day_default.isoformat()
@@ -750,21 +330,19 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
             # If the user changes start_day and end_day is present, shift end_day by the
             # same delta (preserve the event's day span), similar to how we preserve
             # duration when start_time changes.
-            if (
-                changed_id == "start_day"
-                and parsed_end_day is not None
-                and self._last_sync_end_day is not None
-            ):
-                delta_days = (start_day - self._last_sync_start_day).days
-                if delta_days != 0:
-                    new_end_day = self._last_sync_end_day.fromordinal(
-                        self._last_sync_end_day.toordinal() + delta_days
-                    )
-                    new_raw = new_end_day.isoformat()
+            if parsed_end_day is not None:
+                shifted = maybe_shift_end_day_on_start_day_change(
+                    changed_id=changed_id,
+                    new_start_day=start_day,
+                    last_sync_start_day=self._last_sync_start_day,
+                    last_sync_end_day=self._last_sync_end_day,
+                )
+                if shifted is not None:
+                    new_raw = shifted.isoformat()
                     if end_day_in.value != new_raw:
                         end_day_in.value = new_raw
                     end_day_raw = new_raw
-                    parsed_end_day = new_end_day
+                    parsed_end_day = shifted
 
             result = _sync_end_fields_logic(
                 changed_id=changed_id,
@@ -816,148 +394,49 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
         nmb_input = self.query_one("#notify_minutes_before", Input)
 
         start_day_raw = start_day_input.value.strip()
-        title = title_input.value.strip()
+        title_raw = title_input.value.strip()
         start_raw = start_time_input.value.strip()
         end_day_raw = end_day_input.value.strip()
         end_raw = end_time_input.value.strip()
         notify = self.query_one("#notify", Checkbox).value
         nmb_raw = nmb_input.value.strip()
 
-        errors: list[str] = []
-
         today = today_local()
-        if not start_day_raw:
-            # Empty date always means today, regardless of new/edit mode
-            start_day = today
-        else:
-            try:
-                start_day = parse_date_flexible(start_day_raw, today=today)
-            except Exception:  # noqa: BLE001
-                start_day = self._initial.start_day
-                start_day_input.add_class("error")
-                errors.append(
-                    "Invalid date. Allowed formats: YYYY-MM-DD (2025-12-25), "
-                    "DD/MM/YYYY (25/12/2025), DD/MM (5/9, uses current year), "
-                    "DD/MM/YY (3/6/26), "
-                    "MM-DD (12-25, uses current year) or "
-                    "DD (25, uses current month). Empty = today"
-                )
+        parsed, form_errors = parse_event_form_submission(
+            start_day_raw=start_day_raw,
+            title_raw=title_raw,
+            start_time_raw=start_raw,
+            end_day_raw=end_day_raw,
+            end_time_raw=end_raw,
+            notify=bool(notify),
+            notify_minutes_before_raw=nmb_raw,
+            initial_start_day=self._initial.start_day,
+            today=today,
+        )
 
-        if not title:
-            title_input.add_class("error")
-            errors.append("Title cannot be empty")
+        if form_errors:
+            for err in form_errors:
+                if err.field_id:
+                    try:
+                        self.query_one(f"#{err.field_id}", Input).add_class("error")
+                    except Exception:  # noqa: BLE001
+                        pass
 
-        start_t: time | None = None
-        if start_raw:
-            try:
-                start_t = parse_time_flexible(start_raw)
-            except Exception:  # noqa: BLE001
-                start_time_input.add_class("error")
-                errors.append(
-                    "Invalid start time. Allowed formats: 9, 9:30, 09:00. "
-                    "Empty = all day"
-                )
-
-        end_t: time | None = None
-        if end_raw:
-            try:
-                end_t = parse_time_flexible(end_raw)
-            except Exception:  # noqa: BLE001
-                end_time_input.add_class("error")
-                errors.append(
-                    "Invalid end time. Allowed formats: 9, 9:30, 09:00. "
-                    "Empty = +1h if there is a start"
-                )
-
-        end_day: date | None = None
-        if end_day_raw:
-            try:
-                end_day = parse_date_flexible(end_day_raw, today=today)
-            except Exception:  # noqa: BLE001
-                end_day_input.add_class("error")
-                errors.append(
-                    "Invalid end date. Use the same formats as Start. "
-                    "Empty = same day. Multi-day: enter a later date (e.g. 30/1/26)"
-                )
-
-        end_day_offset = 0
-
-        if start_t is None and end_t is not None:
-            start_time_input.add_class("error")
-            end_time_input.add_class("error")
-            errors.append(
-                "End time requires a start time. Define start or leave end empty"
-            )
-
-        # Compute end_day_offset and defaults.
-        if start_t is None:
-            # All-day event (single or multi-day range). Times must be empty.
-            if end_day is not None:
-                end_day_offset = (end_day - start_day).days
-            else:
-                end_day_offset = 0
-        else:
-            # Timed event.
-            if end_t is None:
-                end_t, inferred_offset = _add_1h_with_day_rollover(start_t)
-                if end_day is None:
-                    end_day = start_day.fromordinal(start_day.toordinal() + inferred_offset)
-                end_day_offset = (end_day - start_day).days
-            else:
-                if end_day is None:
-                    # If user didn't provide an end date, only infer same-day or +1.
-                    end_day_offset = 1 if end_t < start_t else 0
-                    end_day = start_day.fromordinal(start_day.toordinal() + end_day_offset)
-                else:
-                    end_day_offset = (end_day - start_day).days
-
-        if end_day_offset < 0:
-            end_day_input.add_class("error")
-            errors.append("End date cannot be before start date")
-
-        notify_minutes_before: int | None
-        if not nmb_raw:
-            notify_minutes_before = None
-        else:
-            try:
-                notify_minutes_before = int(nmb_raw)
-            except Exception:  # noqa: BLE001
-                notify_minutes_before = None
-                nmb_input.add_class("error")
-                errors.append(
-                    "Invalid minutes before. Use an integer (e.g.: 0, 5, 15). "
-                    "Empty = at event time"
-                )
-
-        if notify_minutes_before is not None and notify_minutes_before < 0:
-            nmb_input.add_class("error")
-            errors.append("Minutes before cannot be negative. Use 0 or more")
-
-        if start_t is not None and end_t is not None and end_day_offset >= 0:
-            start_dt = datetime.combine(start_day, start_t)
-            end_dt = datetime.combine(start_day, end_t) + timedelta(days=end_day_offset)
-            if end_dt < start_dt:
-                end_time_input.add_class("error")
-                end_day_input.add_class("error")
-                errors.append(
-                    "End time must be >= start time. If it crosses midnight, "
-                    "use a later end date or leave end empty"
-                )
-
-        if errors:
-            error.update("[red]" + "\n".join(f"• {m}" for m in errors) + "[/red]")
+            error.update("[red]" + "\n".join(f"• {e.message}" for e in form_errors) + "[/red]")
             return
+
+        assert parsed is not None
 
         self.dismiss(
             EventFormResult(
-                title=title,
-                start_day=start_day,
-                start_time=start_t,
-                end_day=end_day,
-                end_time=end_t,
-                end_day_offset=end_day_offset,
-                notify=bool(notify),
-                notify_minutes_before=notify_minutes_before,
+                title=parsed.title,
+                start_day=parsed.start_day,
+                start_time=parsed.start_time,
+                end_day=parsed.end_day,
+                end_time=parsed.end_time,
+                end_day_offset=parsed.end_day_offset,
+                notify=parsed.notify,
+                notify_minutes_before=parsed.notify_minutes_before,
             )
         )
 
@@ -1065,30 +544,12 @@ class EventsPane(Container):
     ) -> None:
         today = today or today_local()
         now = datetime.now()
-        
-        # Filter events: show only those that are relevant for today or future.
-        # Hide events that ended before today (fully in the past).
-        def _is_visible(ev: Event) -> bool:
-            # Calculate the end date of the event
-            end_day = ev.date.fromordinal(ev.date.toordinal() + int(ev.end_day_offset or 0))
-            
-            # If event ends before today, it's in the past - don't show
-            if end_day < today:
-                return False
-            
-            # If event ends today or later, show it
-            return True
 
-        self._events = [ev for ev in self._repo.list_events() if _is_visible(ev)]
+        self._events = [
+            ev for ev in self._repo.list_events() if is_visible_in_events_pane(ev, today=today)
+        ]
 
-        def sort_key(ev: Event) -> tuple[date, int, int, str]:
-            all_day_rank = 0 if ev.start_time is None else 1
-            minutes = -1
-            if ev.start_time is not None:
-                minutes = ev.start_time.hour * 60 + ev.start_time.minute
-            return (ev.date, all_day_rank, minutes, str(ev.id))
-
-        self._events.sort(key=sort_key)
+        self._events.sort(key=event_list_sort_key)
 
         lv = self.query_one("#events_list", ListView)
         old_index = lv.index or 0
@@ -1131,60 +592,21 @@ class EventsPane(Container):
 
     def _format_row(self, ev: Event) -> str:
         today = today_local()
-        start_day = ev.date
-        end_day = start_day.fromordinal(start_day.toordinal() + int(ev.end_day_offset or 0))
-
-        day_part = self._fmt_day_friendly(start_day, today)
-
-        time_part = "All day"
-        if ev.start_time is None:
-            if ev.end_day_offset and ev.end_day_offset > 0:
-                day_part = f"{day_part}–{self._fmt_day_friendly(end_day, today)}"
-        else:
-            start_s = ev.start_time.strftime("%H:%M")
-            end_s = ev.end_time.strftime("%H:%M") if ev.end_time else "??"
-            if ev.end_day_offset and ev.end_day_offset > 0:
-                time_part = f"{start_s}–{self._fmt_day_friendly(end_day, today)} {end_s}"
-            else:
-                time_part = f"{start_s}–{end_s}"
-
-        repeat_part = ""
-        if ev.repeat and isinstance(ev.repeat, dict):
-            freq = str(ev.repeat.get("freq") or "")
-            if freq and freq != "none":
-                repeat_part = f" ({freq})"
-
-        return f"{day_part} {time_part}  {ev.title}{repeat_part}"
+        return format_event_row(
+            ev,
+            today=today,
+            fmt_day_friendly=lambda d: self._fmt_day_friendly(d, today),
+        )
 
     def _event_notify_glyph(self, ev: Event) -> str:
-        return "🕭" if ev.notify else " "
-
-    def _event_time_bounds(self, ev: Event) -> tuple[datetime, datetime]:
-        start_dt = datetime.combine(ev.date, ev.start_time or time(0, 0))
-
-        if ev.start_time is None:
-            # All-day events span full days; represent the end as an exclusive bound.
-            days = int(ev.end_day_offset or 0) + 1
-            end_dt = datetime.combine(ev.date, time(0, 0)) + timedelta(days=days)
-            return start_dt, end_dt
-
-        if ev.end_time is None:
-            return start_dt, start_dt + timedelta(hours=1)
-
-        end_dt = datetime.combine(ev.date, ev.end_time) + timedelta(
-            days=int(ev.end_day_offset or 0)
-        )
-        return start_dt, end_dt
+        return event_notify_glyph(ev)
 
     def _apply_temporal_classes(self, row: Container, ev: Event, *, now: datetime) -> None:
         row.remove_class("is_past")
         row.remove_class("is_in_progress")
 
-        start_dt, end_dt = self._event_time_bounds(ev)
-        if end_dt <= now:
-            row.add_class("is_past")
-        elif start_dt <= now < end_dt:
-            row.add_class("is_in_progress")
+        for class_name in temporal_classnames(ev, now=now):
+            row.add_class(class_name)
 
     def _build_list_item(self, ev: Event, *, now: datetime) -> ListItem:
         main = self._format_row(ev)
@@ -1207,7 +629,7 @@ class EventsPane(Container):
         return ListItem(row)
 
     def _fmt_day_friendly(self, day: date, today: date) -> str:
-        return _fmt_day_compact_friendly(day, today=today)
+        return fmt_day_compact_friendly(day, today=today)
 
     def _selected_event(self) -> Event | None:
         if not self._events:
@@ -1263,15 +685,8 @@ class EventsPane(Container):
         self._events[idx] = updated
         
         # Check if the event should be reordered
-        def sort_key(ev: Event) -> tuple[date, int, int, str]:
-            all_day_rank = 0 if ev.start_time is None else 1
-            minutes = -1
-            if ev.start_time is not None:
-                minutes = ev.start_time.hour * 60 + ev.start_time.minute
-            return (ev.date, all_day_rank, minutes, str(ev.id))
-        
         # Create a sorted copy to find new position
-        sorted_events = sorted(self._events, key=sort_key)
+        sorted_events = sorted(self._events, key=event_list_sort_key)
         new_idx = next((i for i, ev in enumerate(sorted_events) if ev.id == updated.id), idx)
         
         # If position changed, reorder using move_child
@@ -1426,17 +841,5 @@ class EventsPane(Container):
         )
 
 
-def default_data_dir() -> Path:
-    return Path.home() / ".logui"
-
-
-def ensure_data_dir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-
-
 def _fmt_time(t: time | None) -> str:
     return t.strftime("%H:%M") if t else ""
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
