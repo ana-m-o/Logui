@@ -20,3 +20,7 @@ class FilesRepository(ABC):
     @abstractmethod
     def delete_txt_file(self, filename: str) -> bool:
         raise NotImplementedError
+
+    @abstractmethod
+    def rename_txt_file(self, old_filename: str, new_filename: str) -> None:
+        raise NotImplementedError

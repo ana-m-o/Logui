@@ -19,6 +19,7 @@ from logui.usecases.files import (
     build_editor_argv,
     create_txt_file,
     is_gui_editor,
+    rename_txt_file,
     resolve_editor_config,
 )
 
@@ -85,6 +86,72 @@ class NewFileScreen(ModalScreen[NewFileResult | None]):
         self.dismiss(NewFileResult(filename=name))
 
 
+@dataclass(frozen=True)
+class RenameFileResult:
+    new_name: str
+
+
+class RenameFileScreen(ModalScreen[RenameFileResult | None]):
+    BINDINGS = [
+        Binding("enter", "submit", "Renombrar", show=False),
+        Binding("escape", "cancel", "Cancelar", show=False),
+    ]
+
+    def __init__(self, *, current_name: str):
+        super().__init__()
+        self._current_name = current_name
+        self.add_class("modal")
+
+    def compose(self) -> ComposeResult:
+        initial = self._current_name
+        if initial.lower().endswith(".txt"):
+            initial = initial[:-4]
+
+        yield Container(
+            Label("Rename file", classes="modal_title"),
+            Static("[dim]enter renames • esc cancel[/dim]", classes="modal_help"),
+            Label(f"Current: {self._current_name}"),
+            Label("New name *"),
+            Input(
+                value=initial,
+                placeholder="new-name.txt ('.txt' will be added if missing)",
+                id="rename_file_name",
+            ),
+            Static("", id="rename_file_error", classes="modal_error"),
+            id="rename_file",
+            classes="modal_box modal_w60",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#rename_file_name", Input).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_submit(self) -> None:
+        self._submit()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "rename_file_name":
+            self._submit()
+
+    def _submit(self) -> None:
+        error = self.query_one("#rename_file_error", Static)
+        error.update("")
+
+        for input_widget in self.query(Input):
+            input_widget.remove_class("error")
+
+        inp = self.query_one("#rename_file_name", Input)
+        name = (inp.value or "").strip()
+        if not name:
+            inp.add_class("error")
+            error.update("[red]• El nombre no puede estar vacío[/red]")
+            return
+
+        self.dismiss(RenameFileResult(new_name=name))
+
+
 class FileItem(ListItem):
     def __init__(self, filename: str):
         super().__init__()
@@ -117,7 +184,7 @@ class FilesPane(Container):
         Binding("e", "open", "Edit", show=False, priority=True),
         Binding("n", "new", "New", show=False),
         Binding("x", "delete", "Delete", show=False),
-        Binding("r", "refresh", "Refresh", show=False),
+        Binding("r", "rename", "Rename", show=False),
     ]
 
     def __init__(self, repo: FilesRepository, config_repo: ConfigRepository):
@@ -130,7 +197,7 @@ class FilesPane(Container):
         yield Container(
             Horizontal(Label("Files"), classes="page_header"),
             Static(
-                "[dim]e/enter edit • n new • x delete • r refresh[/dim]",
+                "[dim]e/enter edit • n new • r rename • x delete[/dim]",
                 classes="page_help",
             ),
             FilesListView(id="files_list", classes="files_list"),
@@ -203,6 +270,34 @@ class FilesPane(Container):
 
     def action_refresh(self) -> None:
         self._refresh()
+
+    def action_rename(self) -> None:
+        filename = self._selected_filename()
+        if not filename:
+            return
+
+        screen = RenameFileScreen(current_name=filename)
+
+        def _on_done(res: RenameFileResult | None) -> None:
+            if res is None:
+                return
+
+            try:
+                new_name = rename_txt_file(self._repo, filename, res.new_name)
+            except ValidationError as e:
+                self._notify_error("Error de validación", e)
+                return
+            except Exception as e:  # noqa: BLE001
+                self._notify_error("Error renombrando archivo", e)
+                return
+
+            if new_name == filename:
+                return
+
+            self._notify("Archivo renombrado")
+            self._refresh(keep=new_name)
+
+        self.app.push_screen(screen, callback=_on_done)
 
     def _refresh(self, *, keep: str | None = None) -> None:
         lv = self.query_one("#files_list", ListView)

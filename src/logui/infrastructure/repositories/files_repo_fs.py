@@ -45,3 +45,17 @@ class FsFilesRepository(FilesRepository):
             return True
         except FileNotFoundError:
             return False
+
+    def rename_txt_file(self, old_filename: str, new_filename: str) -> None:
+        old_path = self.path_for(old_filename)
+        new_path = self.path_for(new_filename)
+
+        if old_path == new_path:
+            return
+
+        if not old_path.exists():
+            raise FileNotFoundError(str(old_path))
+        if new_path.exists():
+            raise FileExistsError(str(new_path))
+
+        old_path.rename(new_path)

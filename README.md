@@ -147,6 +147,10 @@ Encryption is optional and can be enabled from the configuration.
 - `o` → Open task link (in Tasks, if present)
 - `ctrl+q` → Quit
 
+Notes about Files:
+
+- In Files, `r` renames the selected file.
+
 Notes about the Journal:
 
 - In the Journal editor (multiline), `enter` creates a new line; to save use `ctrl+shift+s`.

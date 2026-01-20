@@ -32,6 +32,10 @@ def test_fs_files_repo_crud_and_listing(tmp_path: Path) -> None:
     assert repo.delete_txt_file("b.txt") is True
     assert repo.delete_txt_file("b.txt") is False
 
+    # Rename
+    repo.rename_txt_file("A.txt", "c.txt")
+    assert repo.list_txt_files() == ["c.txt"]
+
 
 def test_fs_files_repo_path_for_is_basename(tmp_path: Path) -> None:
     from logui.infrastructure.repositories.files_repo_fs import FsFilesRepository

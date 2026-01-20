@@ -75,6 +75,23 @@ def delete_txt_file(repo: FilesRepository, filename: str) -> bool:
     return bool(repo.delete_txt_file(filename))
 
 
+def rename_txt_file(repo: FilesRepository, old_filename: str, new_raw_name: str) -> str:
+    old = normalize_txt_filename(old_filename)
+    new = normalize_txt_filename(new_raw_name)
+
+    if old == new:
+        return new
+
+    try:
+        repo.rename_txt_file(old, new)
+    except FileNotFoundError:
+        raise ValidationError("No existe el archivo") from None
+    except FileExistsError:
+        raise ValidationError("Ya existe ese archivo") from None
+
+    return new
+
+
 def build_editor_argv(editor: EditorConfig, file_path: Path) -> list[str]:
     cmd = (editor.command or "nano").strip() or "nano"
     args = editor.normalized_args()

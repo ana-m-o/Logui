@@ -67,6 +67,20 @@ def test_files_create_delete_open(tmp_path: Path, monkeypatch) -> None:
             assert len(run_calls) == 1
             assert run_calls[0][-1].endswith("hello.txt")
 
+            # Rename file (r)
+            from logui.ui.screens.files import RenameFileScreen
+
+            await pilot.press("r")
+            await pilot.pause()
+            assert isinstance(app.screen, RenameFileScreen)
+
+            app.screen.query_one("#rename_file_name", Input).value = "hello2"
+            app.screen.action_submit()
+            await pilot.pause()
+
+            assert files_repo.list_txt_files() == ["hello2.txt"]
+            assert any("Archivo renombrado" in m for m in app.notifications)
+
             # Delete file
             await pilot.press("x")
             await pilot.pause()
