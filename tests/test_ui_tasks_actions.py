@@ -92,6 +92,11 @@ def test_tasks_crud_and_actions(tmp_path) -> None:
             t1d = repo.get_task(t1.id)
             assert t1d is not None
             assert t1d.status != prev_status
+            expected_label = t1d.status.value.replace("_", " ").title()
+            assert any(
+                m == f"Task status: {expected_label}" or m.endswith(f": {expected_label}")
+                for m in app.notifications
+            )
 
             # Create a second root task so move_up has something to do.
             tasks.action_new()

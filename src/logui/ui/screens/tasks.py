@@ -385,6 +385,10 @@ class TasksPane(Container):
             TaskStatus.DONE: "[X]",
         }.get(status, "[?]")
 
+    def _status_label(self, status: TaskStatus) -> str:
+        # User-facing label for notifications.
+        return str(status.value).replace("_", " ").title()
+
     def _fmt_day(self, day: date) -> str:
         return fmt_day_full_friendly(day)
 
@@ -671,6 +675,7 @@ class TasksPane(Container):
         try:
             updated = cycle_task_status(self._repo, task.id)
             self._update_selected_item_in_place(updated)
+            self._notify(f"Task status: {self._status_label(updated.status)}")
         except ValidationError as e:
             self._notify(f"Error: {e}")
 
