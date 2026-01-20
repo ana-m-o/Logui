@@ -17,14 +17,6 @@ from logui.ui.parsing import parse_date_flexible, today_local
 from logui.ui.screens.modals import ConfirmScreen
 
 
-def fmt_day_header_friendly(day: date) -> str:
-    return fmt_day_header_en(day)
-
-
-def fmt_day_list_short(day: date) -> str:
-    return fmt_day_list_short_en(day)
-
-
 @dataclass(frozen=True)
 class JournalEditorResult:
     day: date
@@ -48,7 +40,7 @@ class JournalEditorScreen(ModalScreen[JournalEditorResult | None]):
     def compose(self) -> ComposeResult:
         yield Container(
             Label(
-                f"Journal — {fmt_day_header_friendly(self._initial_day)}",
+                f"Journal — {fmt_day_header_en(self._initial_day)}",
                 id="journal_editor_title",
                 classes="modal_title",
             ),
@@ -102,7 +94,7 @@ class JournalEditorScreen(ModalScreen[JournalEditorResult | None]):
             return
 
         title = self.query_one("#journal_editor_title", Label)
-        title.update(f"Journal — {fmt_day_header_friendly(parsed_day)}")
+        title.update(f"Journal — {fmt_day_header_en(parsed_day)}")
 
         text = ""
         try:
@@ -161,7 +153,7 @@ class JournalDayItem(ListItem):
         self.day = day
 
     def compose(self) -> ComposeResult:
-        yield Static(fmt_day_list_short(self.day), markup=False)
+        yield Static(fmt_day_list_short_en(self.day), markup=False)
 
 
 class JournalPane(Container):
@@ -261,7 +253,7 @@ class JournalPane(Container):
 
     def _render_detail(self) -> None:
         title = self.query_one("#journal_detail_title", Label)
-        title.update(f"{fmt_day_header_friendly(self._selected_day)}")
+        title.update(f"{fmt_day_header_en(self._selected_day)}")
 
         text_widget = self.query_one("#journal_detail_text", Static)
         text = None

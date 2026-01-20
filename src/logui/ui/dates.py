@@ -5,7 +5,7 @@ Note: we centralize formatting here to avoid duplicating month/day maps.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
 _EN_MONTHS_SHORT: dict[int, str] = {
     1: "Jan",
@@ -42,21 +42,6 @@ _ES_WEEKDAYS_SHORT: dict[int, str] = {
     6: "Dom",
 }
 
-_ES_MONTHS_SHORT: dict[int, str] = {
-    1: "Ene",
-    2: "Feb",
-    3: "Mar",
-    4: "Abr",
-    5: "May",
-    6: "Jun",
-    7: "Jul",
-    8: "Ago",
-    9: "Sep",
-    10: "Oct",
-    11: "Nov",
-    12: "Dic",
-}
-
 
 def fmt_day_full_friendly(day: date) -> str:
     """Fixed format with year: `29 Dec, 2026`."""
@@ -78,13 +63,6 @@ def fmt_day_compact_friendly(day: date, *, today: date) -> str:
     if day.year > today.year:
         return f"{base}, {day.year}"
     return base
-
-
-def fmt_header_date_es(dt: datetime) -> str:
-    """Spanish header format: `Mié 7 Ene 2026`."""
-    wd = _ES_WEEKDAYS_SHORT.get(dt.weekday(), str(dt.weekday()))
-    mo = _ES_MONTHS_SHORT.get(dt.month, str(dt.month))
-    return f"{wd} {dt.day} {mo} {dt.year}"
 
 
 def fmt_day_header_en(day: date) -> str:

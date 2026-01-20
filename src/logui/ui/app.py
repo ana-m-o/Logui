@@ -306,7 +306,7 @@ class LogUIApp(App):
     def _count_today_events(self) -> int:
         """Count events for today, including multi-day events in progress."""
         try:
-            from datetime import datetime, time as dt_time
+            from datetime import datetime
             now = datetime.now()
             today = now.date()
             events = self._events_repo.list_events()
