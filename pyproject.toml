@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "logui"
-version = "0.2.0.dev1"
+version = "0.2.0.dev2"
 description = "Distraction-free daily planner app for the terminal."
 readme = "README.md"
 requires-python = ">=3.9"

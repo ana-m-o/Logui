@@ -1,5 +1,6 @@
 """Main Textual application."""
 
+from importlib import metadata as importlib_metadata
 import logging
 import sys
 from datetime import date, datetime
@@ -50,7 +51,19 @@ except Exception:  # noqa: BLE001
 
 
 def _get_project_info() -> tuple[str, str]:
-    """Read project name and version from pyproject.toml."""
+    """Return display name + version.
+
+    Prefer installed package metadata (works in wheels). Fall back to reading
+    pyproject.toml for dev/running-from-source scenarios.
+    """
+    try:
+        version = importlib_metadata.version("logui")
+        return ("LogUI", version)
+    except importlib_metadata.PackageNotFoundError:
+        pass
+    except Exception as e:  # noqa: BLE001
+        _log.debug("Failed reading installed package metadata: %s", e)
+
     try:
         if tomllib is None:
             return ("LogUI", "0.0.0")

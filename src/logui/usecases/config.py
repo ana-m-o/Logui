@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shlex
+from dataclasses import replace
 from datetime import time
 
 from logui.domain.entities.config import (
@@ -28,13 +29,7 @@ def update_editor(*, repo: ConfigRepository, command: str, args_text: str) -> Ap
     else:
         args = []
 
-    updated = AppConfig(
-        schema_version=current.schema_version,
-        editor=EditorConfig(command=cmd, args=args),
-        encryption=current.encryption,
-        notifications=current.notifications,
-        data_directory=current.data_directory,
-    )
+    updated = replace(current, editor=EditorConfig(command=cmd, args=args))
     repo.save(updated)
     return updated
 
@@ -54,17 +49,11 @@ def set_all_day_notify_time(*, repo: ConfigRepository, hhmm: str) -> AppConfig:
     except Exception:  # noqa: BLE001
         parsed_ok = False
 
-    new_notifications = NotificationsConfig(
+    new_notifications = replace(
+        current.notifications,
         all_day_notify_time=s if parsed_ok else current.notifications.all_day_notify_time,
-        default_minutes_before=current.notifications.default_minutes_before,
     )
-    updated = AppConfig(
-        schema_version=current.schema_version,
-        editor=current.editor,
-        encryption=current.encryption,
-        notifications=new_notifications,
-        data_directory=current.data_directory,
-    )
+    updated = replace(current, notifications=new_notifications)
     repo.save(updated)
     return updated
 
@@ -75,16 +64,7 @@ def set_default_notify_minutes_before(*, repo: ConfigRepository, minutes: int) -
     if mins < 0:
         mins = 0
 
-    new_notifications = NotificationsConfig(
-        all_day_notify_time=current.notifications.all_day_notify_time,
-        default_minutes_before=mins,
-    )
-    updated = AppConfig(
-        schema_version=current.schema_version,
-        editor=current.editor,
-        encryption=current.encryption,
-        notifications=new_notifications,
-        data_directory=current.data_directory,
-    )
+    new_notifications = replace(current.notifications, default_minutes_before=mins)
+    updated = replace(current, notifications=new_notifications)
     repo.save(updated)
     return updated
