@@ -20,32 +20,6 @@ class JsonTaskRepository(TaskRepository):
         raw_tasks: list[dict[str, Any]] = doc.get("tasks") or []
 
         tasks = [Task.from_dict(t) for t in raw_tasks]
-        had_missing_order = any("order" not in t for t in raw_tasks)
-
-        if had_missing_order and tasks:
-            # Assign orders to legacy tasks lacking the field.
-            # Preserve any existing explicit orders; fill missing ones after max.
-            existing_orders = [
-                t.order for raw, t in zip(raw_tasks, tasks, strict=False) if "order" in raw
-            ]
-            next_order = (max(existing_orders) + 1) if existing_orders else 0
-
-            # Fill missing orders in created_at order.
-            missing = [
-                (idx, t)
-                for idx, (raw, t) in enumerate(zip(raw_tasks, tasks, strict=False))
-                if "order" not in raw
-            ]
-            missing.sort(key=lambda it: it[1].created_at)
-            for idx, _t in missing:
-                raw_tasks[idx]["order"] = next_order
-                next_order += 1
-
-            # Recreate tasks with assigned orders and write back.
-            tasks = [Task.from_dict(t) for t in raw_tasks]
-            doc = {**doc, "tasks": raw_tasks}
-            self._store.write_atomic(doc)
-
         return sorted(tasks, key=lambda t: (t.order, t.created_at))
 
     def get_task(self, task_id: UUID) -> Task | None:

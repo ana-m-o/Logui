@@ -169,8 +169,6 @@ class Task:
         try:
             order = int(data.get("order", 0))
             due_date = date.fromisoformat(data["due_date"]) if data.get("due_date") else None
-            # Backward compatible: older data may include a "date_type" key.
-            # It's ignored now.
 
             link: TaskLink | None = None
             raw_link = data.get("link")
@@ -198,11 +196,6 @@ class Task:
                 created_at=created_at,
                 updated_at=updated_at,
             )
-
-            # Backward compatibility: older tasks didn't store completed_at.
-            # If it's DONE, infer completion from updated_at so UI filtering works.
-            if task.status == TaskStatus.DONE and task.completed_at is None:
-                task.completed_at = task.updated_at
 
             task._validate_invariants()  # noqa: SLF001
             return task
