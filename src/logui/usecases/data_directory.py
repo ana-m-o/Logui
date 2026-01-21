@@ -1,10 +1,13 @@
 """Use case for changing data directory configuration."""
 
+import logging
 import shutil
 from pathlib import Path
 
 from logui.domain.entities.config import AppConfig
 from logui.domain.ports.config import ConfigRepository
+
+_log = logging.getLogger(__name__)
 
 
 def ensure_data_dir(path: Path) -> None:
@@ -52,9 +55,9 @@ def set_data_directory(
                         if dest.exists():
                             shutil.rmtree(dest)
                         shutil.copytree(item, dest)
-                except Exception:
+                except Exception as e:  # noqa: BLE001
                     # Best effort - continue even if some files fail
-                    pass
+                    _log.debug("Failed copying %s to %s: %s", item, dest, e)
     
     updated = AppConfig(
         schema_version=current.schema_version,

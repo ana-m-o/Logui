@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 
 def play_notification_sound(path: Path) -> None:
@@ -36,9 +39,10 @@ def play_notification_sound(path: Path) -> None:
             try:
                 import winsound
                 winsound.PlaySound(str(p), winsound.SND_FILENAME | winsound.SND_ASYNC)
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                _log.debug("winsound playback failed: %s", e)
             return
         return
     except Exception:  # noqa: BLE001
+        _log.debug("Sound playback failed", exc_info=True)
         return
