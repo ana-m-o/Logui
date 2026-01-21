@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import webbrowser
 from dataclasses import dataclass
 from datetime import date
@@ -39,6 +40,8 @@ from logui.usecases.tasks import (
     toggle_task_priority,
     update_task,
 )
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -370,8 +373,8 @@ class TasksPane(Container):
         if old_scroll_y is not None:
             try:
                 lv.scroll_y = old_scroll_y
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001
+                _log.debug("Failed restoring tasks scroll position: %s", e)
 
         if focus:
             lv.focus()

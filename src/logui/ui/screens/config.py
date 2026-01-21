@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 
 from textual import events
@@ -17,6 +18,13 @@ from logui.usecases.config import (
     set_default_notify_minutes_before,
     update_editor,
 )
+
+_log = logging.getLogger(__name__)
+
+try:
+    from textual.css.query import NoMatches, TooManyMatches
+except Exception:  # noqa: BLE001
+    NoMatches = TooManyMatches = Exception  # type: ignore[misc,assignment]
 
 
 @dataclass(frozen=True)
@@ -229,8 +237,8 @@ class ConfigPane(Container):
             if len(list(lv.query(ListItem))) > 0:
                 lv.index = 0
             lv.focus()
-        except Exception:  # noqa: BLE001
-            pass
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.debug("Config focus skipped: %s", e)
 
     def _notify(self, message: str) -> None:
         notify = getattr(self.app, "notify", None)
@@ -250,8 +258,8 @@ class ConfigPane(Container):
         try:
             header = self.query_one("#data_dir_header", Static)
             header.update(f"Data directory: {self._data_dir_text}")
-        except Exception:  # noqa: BLE001
-            pass
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.debug("Config header update skipped: %s", e)
 
         lv = self.query_one("#config_list", ListView)
         lv.clear()
@@ -294,7 +302,8 @@ class ConfigPane(Container):
         try:
             lv = self.query_one("#config_list", ListView)
             item = lv.highlighted_child
-        except Exception:  # noqa: BLE001
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.debug("Config selected key unavailable: %s", e)
             return None
         if isinstance(item, _ConfigRow):
             return item.key

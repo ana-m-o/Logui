@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 from dataclasses import dataclass
 
@@ -22,6 +23,13 @@ from logui.usecases.files import (
     rename_txt_file,
     resolve_editor_config,
 )
+
+_log = logging.getLogger(__name__)
+
+try:
+    from textual.css.query import NoMatches, TooManyMatches
+except Exception:  # noqa: BLE001
+    NoMatches = TooManyMatches = Exception  # type: ignore[misc,assignment]
 
 
 @dataclass(frozen=True)
@@ -174,8 +182,8 @@ class FilesListView(ListView):
         except Exception as e:  # noqa: BLE001
             try:
                 pane._notify_error("Error en acción de abrir", e)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as notify_err:  # noqa: BLE001
+                _log.debug("Failed reporting open error: %s", notify_err)
 
 
 class FilesPane(Container):
@@ -207,8 +215,8 @@ class FilesPane(Container):
         self._refresh()
         try:
             self.query_one("#files_list", ListView).focus()
-        except Exception:  # noqa: BLE001
-            pass
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.debug("Files focus skipped: %s", e)
 
     def _notify(self, message: str) -> None:
         notify = getattr(self.app, "notify", None)
@@ -225,8 +233,8 @@ class FilesPane(Container):
                 log = getattr(self.app, "log", None)
                 if callable(log):
                     log(message, exc=exc)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001
+                _log.debug("App log hook failed: %s", e)
 
         full = message
         if exc is not None:
@@ -241,8 +249,8 @@ class FilesPane(Container):
                 from rich.text import Text
 
                 notify(Text(full), title="Error", timeout=30)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001
+                _log.debug("Failed showing error toast: %s", e)
 
     def _selected_filename(self) -> str | None:
         if not self._filenames:
@@ -250,7 +258,8 @@ class FilesPane(Container):
 
         try:
             lv = self.query_one("#files_list", ListView)
-        except Exception:  # noqa: BLE001
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.debug("Files list not available: %s", e)
             return None
 
         idx = lv.index if lv.index is not None else 0
@@ -263,8 +272,8 @@ class FilesPane(Container):
             item = lv.highlighted_child
             if isinstance(item, FileItem):
                 return item.filename
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            _log.debug("Failed reading highlighted file item: %s", e)
 
         return None
 
@@ -307,7 +316,8 @@ class FilesPane(Container):
 
         try:
             new_filenames = list(self._repo.list_txt_files())
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            _log.warning("Failed listing files: %s", e)
             new_filenames = []
 
         def _set_selection() -> None:
@@ -347,8 +357,8 @@ class FilesPane(Container):
                 for child in list(lv.children):
                     try:
                         child.remove()
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as e:  # noqa: BLE001
+                        _log.debug("Failed removing child from files list: %s", e)
                 lv.append(ListItem(Label("(Sin archivos) — pulsa n para crear")))
                 self._filenames = []
                 lv.index = 0
@@ -359,8 +369,8 @@ class FilesPane(Container):
                 if not isinstance(child, FileItem):
                     try:
                         child.remove()
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as e:  # noqa: BLE001
+                        _log.debug("Failed removing placeholder from files list: %s", e)
 
             current_by_name: dict[str, FileItem] = {
                 item.filename: item
@@ -387,8 +397,8 @@ class FilesPane(Container):
                 if name not in new_set:
                     try:
                         item.remove()
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as e:  # noqa: BLE001
+                        _log.debug("Failed removing stale file item: %s", e)
 
         except Exception as e:  # noqa: BLE001
             # If the incremental update fails for any reason, fall back to a full rebuild.

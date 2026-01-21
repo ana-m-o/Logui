@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime
+import logging
 
 from textual.app import ComposeResult
 from textual.containers import Container, ScrollableContainer
@@ -15,6 +16,8 @@ from logui.domain.ports.events import EventRepository
 from logui.domain.ports.tasks import TaskRepository
 from logui.ui.dates import fmt_day_compact_friendly, fmt_day_full_friendly
 from logui.ui.parsing import today_local
+
+_log = logging.getLogger(__name__)
 
 
 def _escape_rich(text: str) -> str:
@@ -157,8 +160,8 @@ class LogPane(Container):
                 log_list.index = max(0, min(old_index, len(log_list.children) - 1))
             if old_scroll_y is not None:
                 log_list.scroll_y = old_scroll_y
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            _log.debug("Failed restoring log selection/scroll: %s", e)
 
     def _get_entry_sort_key(self, entry: tuple[str, Event | Task]) -> tuple:
         """Get sort key for an entry."""

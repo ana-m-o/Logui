@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time
 
@@ -50,6 +51,13 @@ from logui.ui.event_form_state import (
     initial_end_day_default,
     initial_last_sync_end_day,
 )
+
+_log = logging.getLogger(__name__)
+
+try:
+    from textual.css.query import NoMatches, TooManyMatches
+except Exception:  # noqa: BLE001
+    NoMatches = TooManyMatches = Exception  # type: ignore[misc,assignment]
 
 
 def _format_event_notes_block(notes: list[EventNote]) -> str:
@@ -419,8 +427,8 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
                 if err.field_id:
                     try:
                         self.query_one(f"#{err.field_id}", Input).add_class("error")
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except (NoMatches, TooManyMatches, AttributeError) as e:
+                        _log.debug("Failed marking error field %s: %s", err.field_id, e)
 
             error.update("[red]" + "\n".join(f"• {e.message}" for e in form_errors) + "[/red]")
             return
@@ -475,8 +483,8 @@ class EventsPane(Container):
         # Keep temporal styling (in-progress/past) in sync with time.
         try:
             self.set_interval(15, self._refresh_temporal_styles)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            _log.debug("Failed starting events temporal refresh: %s", e)
 
     def on_day_rollover(self, *, today: date) -> None:
         selected = self._selected_event()
@@ -489,7 +497,7 @@ class EventsPane(Container):
 
         try:
             lv = self.query_one("#events_list", ListView)
-        except Exception:  # noqa: BLE001
+        except (NoMatches, TooManyMatches, AttributeError):
             return
 
         items = list(lv.query(ListItem))
@@ -503,7 +511,7 @@ class EventsPane(Container):
             item = items[idx]
             try:
                 row = item.query_one(".event_row", Container)
-            except Exception:  # noqa: BLE001
+            except (NoMatches, TooManyMatches, AttributeError):
                 continue
             self._apply_temporal_classes(row, ev, now=now)
 
@@ -578,8 +586,8 @@ class EventsPane(Container):
         if old_scroll_y is not None:
             try:
                 lv.scroll_y = old_scroll_y
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001
+                _log.debug("Failed restoring events scroll position: %s", e)
         if focus:
             lv.focus()
         
@@ -587,8 +595,8 @@ class EventsPane(Container):
         try:
             if hasattr(self.app, 'update_nav_counts'):
                 self.app.update_nav_counts()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            _log.debug("Failed updating nav counts from EventsPane: %s", e)
 
     def _format_row(self, ev: Event) -> str:
         today = today_local()

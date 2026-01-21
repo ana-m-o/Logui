@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date
 
@@ -15,6 +16,13 @@ from logui.domain.ports.journal import JournalRepository
 from logui.ui.dates import fmt_day_header_en, fmt_day_list_short_en
 from logui.ui.parsing import parse_date_flexible, today_local
 from logui.ui.screens.modals import ConfirmScreen
+
+_log = logging.getLogger(__name__)
+
+try:
+    from textual.css.query import NoMatches, TooManyMatches
+except Exception:  # noqa: BLE001
+    NoMatches = TooManyMatches = Exception  # type: ignore[misc,assignment]
 
 
 @dataclass(frozen=True)
@@ -204,8 +212,8 @@ class JournalPane(Container):
         self._disable_detail_focus()
         try:
             self.query_one("#journal_history_list", ListView).focus()
-        except Exception:  # noqa: BLE001
-            pass
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.debug("Journal focus skipped: %s", e)
 
     def _disable_detail_focus(self) -> None:
         # The right-side detail view is read-only; keep keyboard focus on the list.
@@ -219,8 +227,8 @@ class JournalPane(Container):
                 w = self.query_one(selector)
                 setattr(w, "can_focus", False)
                 setattr(w, "can_focus_children", False)
-            except Exception:  # noqa: BLE001
-                pass
+            except (NoMatches, TooManyMatches, AttributeError) as e:
+                _log.debug("Journal focus disable skipped for %s: %s", selector, e)
 
     def _notify(self, message: str) -> None:
         notify = getattr(self.app, "notify", None)
@@ -230,7 +238,8 @@ class JournalPane(Container):
     def _refresh(self) -> None:
         try:
             self._days_with_entries = list(self._repo.list_entry_days())
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            _log.warning("Failed listing journal days: %s", e)
             self._days_with_entries = []
 
         lv = self.query_one("#journal_history_list", ListView)
@@ -259,7 +268,8 @@ class JournalPane(Container):
         text = None
         try:
             text = self._repo.get_entry(self._selected_day)
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            _log.warning("Failed loading journal entry for %s: %s", self._selected_day, e)
             text = None
 
         if text is None or not (text or "").strip():
@@ -270,7 +280,8 @@ class JournalPane(Container):
     def _day_from_history_list(self) -> date | None:
         try:
             lv = self.query_one("#journal_history_list", ListView)
-        except Exception:  # noqa: BLE001
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.debug("Journal history list unavailable: %s", e)
             return None
 
         idx = lv.index
@@ -279,7 +290,8 @@ class JournalPane(Container):
 
         try:
             children = list(lv.children)
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            _log.debug("Failed reading journal history children: %s", e)
             return None
 
         if idx < 0 or idx >= len(children):
@@ -320,8 +332,8 @@ class JournalPane(Container):
             if widget_id in {"journal_right", "journal_detail_scroll", "journal_detail_text"}:
                 try:
                     self.query_one("#journal_history_list", ListView).focus()
-                except Exception:  # noqa: BLE001
-                    pass
+                except (NoMatches, TooManyMatches, AttributeError) as e:
+                    _log.debug("Journal refocus skipped: %s", e)
                 return
             w = getattr(w, "parent", None)
 
@@ -349,7 +361,8 @@ class JournalPane(Container):
     def _has_entry(self, day: date) -> bool:
         try:
             txt = self._repo.get_entry(day)
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            _log.warning("Failed checking journal entry for %s: %s", day, e)
             return False
         return bool((txt or "").strip())
 
