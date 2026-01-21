@@ -1,5 +1,6 @@
 """Main Textual application."""
 
+import logging
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -39,6 +40,14 @@ from logui.usecases.data_directory import ensure_data_dir, get_expanded_data_dir
 from logui.domain.entities.bootstrap import BootstrapConfig
 from logui.domain.entities.config import AppConfig
 
+_log = logging.getLogger(__name__)
+
+try:
+    # Textual query helpers raise these when a selector doesn't match.
+    from textual.css.query import NoMatches, TooManyMatches
+except Exception:  # noqa: BLE001
+    NoMatches = TooManyMatches = Exception  # type: ignore[misc,assignment]
+
 
 def _get_project_info() -> tuple[str, str]:
     """Read project name and version from pyproject.toml."""
@@ -63,7 +72,8 @@ def _get_project_info() -> tuple[str, str]:
             if name.lower() == "logui":
                 name = "LogUI"
             return (name, version)
-    except Exception:  # noqa: BLE001
+    except (OSError, ValueError, TypeError) as e:
+        _log.debug("Failed reading pyproject.toml metadata: %s", e)
         return ("LogUI", "0.0.0")
 
 
@@ -81,8 +91,8 @@ class NavItem(ListItem):
         try:
             label = self.query_one(f"#nav_label_{self.screen_id}", Static)
             label.update(text)
-        except Exception:  # noqa: BLE001
-            pass
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.debug("Nav label update skipped (%s): %s", self.screen_id, e)
 
 
 class Sidebar(Container):
@@ -194,8 +204,8 @@ class LogUIApp(App):
                 data_directory=None,
             )
             JsonConfigRepository(target_dir / "config.json").save(cleaned_config)
-        except Exception:  # noqa: BLE001
-            pass
+        except (OSError, ValueError, TypeError) as e:
+            _log.warning("Failed copying config to new data directory: %s", e)
 
         if move_files:
             # Copy everything from current data dir into the new dir, but keep
@@ -215,8 +225,8 @@ class LogUIApp(App):
                         if dest.exists():
                             shutil.rmtree(dest)
                         shutil.copytree(item, dest)
-                except Exception:  # noqa: BLE001
-                    pass
+                except OSError as e:
+                    _log.warning("Failed copying %s to %s: %s", item, dest, e)
 
         # Update bootstrap pointer.
         self._bootstrap_repo.save(BootstrapConfig(data_directory=str(target_dir)))
@@ -260,16 +270,16 @@ class LogUIApp(App):
         # Show the current date in the header (left side) and keep it fresh on rollover.
         try:
             self.sub_title = fmt_day_header_en(dt.date())
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            _log.debug("Failed updating header date: %s", e)
 
     def _start_polling(self) -> None:
         """Start unified polling for all periodic tasks."""
         try:
             self.set_interval(15, self._poll)
             self._poll_event_notifications()  # Run notifications immediately
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            _log.exception("Failed starting polling: %s", e)
     
     def _poll(self) -> None:
         """Unified polling function called every 15 seconds."""
@@ -283,8 +293,10 @@ class LogUIApp(App):
             content = self.query_one("#content", ContentSwitcher)
             if getattr(content, "current", None) == "log":
                 self.query_one("#log").refresh_log()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            pass
+        except (NoMatches, TooManyMatches, AttributeError):
+            return
+        except Exception as e:  # noqa: BLE001
+            _log.debug("Log refresh poll failed: %s", e)
         
         # Every 30 seconds (every 2nd call): check day rollover and update counts
         if self._poll_counter % 2 == 0:
@@ -300,8 +312,10 @@ class LogUIApp(App):
                 nav_item.update_label(f"Events [dim]({count})[/dim]")
             else:
                 nav_item.update_label("Events")
-        except Exception:  # noqa: BLE001
-            pass
+        except (NoMatches, TooManyMatches, AttributeError):
+            return
+        except Exception as e:  # noqa: BLE001
+            _log.debug("Failed updating nav counts: %s", e)
     
     def _count_today_events(self) -> int:
         """Count events for today, including multi-day events in progress."""
@@ -333,7 +347,8 @@ class LogUIApp(App):
                 
                 count += 1
             return count
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            _log.warning("Failed counting today's events: %s", e)
             return 0
 
     def _poll_day_rollover(self) -> None:
@@ -350,22 +365,23 @@ class LogUIApp(App):
         # Best-effort: ask panes to refresh their date-dependent filtering.
         try:
             self.query_one("#tasks").on_day_rollover(today=today)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            pass
+        except (NoMatches, TooManyMatches, AttributeError):
+            return
         try:
             self.query_one("#events").on_day_rollover(today=today)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            pass
+        except (NoMatches, TooManyMatches, AttributeError):
+            return
         try:
             self.query_one("#log").on_day_rollover(today=today)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            pass
+        except (NoMatches, TooManyMatches, AttributeError):
+            return
 
     def _poll_event_notifications(self) -> None:
         now = datetime.now()
         try:
             events = list(self._events_repo.list_events())
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            _log.warning("Failed loading events for notifications: %s", e)
             return
 
         # Load config on each poll so edits in Config/Help apply immediately.
@@ -375,7 +391,8 @@ class LogUIApp(App):
             default_minutes_before = int(cfg.notifications.default_minutes_before)
             if default_minutes_before < 0:
                 default_minutes_before = 0
-        except Exception:  # noqa: BLE001
+        except (OSError, ValueError, TypeError) as e:
+            _log.warning("Failed loading notifications config; using defaults: %s", e)
             all_day_time = DEFAULT_ALL_DAY_NOTIFY_TIME
             default_minutes_before = 0
 
@@ -409,8 +426,8 @@ class LogUIApp(App):
                     from rich.text import Text
 
                     self.notify(Text(str(n.title)), title=str(toast_title), timeout=30)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001
+                _log.warning("Failed showing notification toast: %s", e)
 
             # Custom sound (best effort; non-blocking)
             play_notification_sound(self._notify_sound_path)
@@ -459,7 +476,10 @@ class LogUIApp(App):
             if screen_id == "config":
                 self.query_one("#config_list", ListView).focus()
                 return
-        except Exception:  # noqa: BLE001
+        except (NoMatches, TooManyMatches, AttributeError):
+            return
+        except Exception as e:  # noqa: BLE001
+            _log.debug("Failed focusing first interactive (%s): %s", screen_id, e)
             return
 
     def action_nav_tasks(self) -> None:
