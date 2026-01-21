@@ -9,39 +9,18 @@ from textual.app import ComposeResult
 from textual.containers import Container, ScrollableContainer
 from textual.widgets import Label, ListItem, ListView, Static
 
-from logui.domain.entities.event import Event, EventNote
-from logui.domain.entities.task import Task, TaskNote, TaskStatus
+from logui.domain.entities.event import Event
+from logui.domain.entities.task import Task, TaskStatus
 from logui.domain.ports.events import EventRepository
 from logui.domain.ports.tasks import TaskRepository
 from logui.ui.dates import fmt_day_compact_friendly, fmt_day_full_friendly
 from logui.ui.parsing import today_local
 
 
-def _format_time(t) -> str:
-    """Formatear hora en HH:MM."""
-    if t is None:
-        return ""
-    return t.strftime("%H:%M")
-
-
 def _escape_rich(text: str) -> str:
     # Textual uses Rich markup by default in Static; escape brackets to avoid
     # interpreting user content as markup.
     return (text or "").replace("[", r"\[").replace("]", r"\]")
-
-
-def _format_event_notes(notes: list[EventNote]) -> str:
-    """Formatear notas de evento."""
-    if not notes:
-        return ""
-    return "\n".join(f"    [dim italic]- {_escape_rich(n.text)}[/]" for n in notes)
-
-
-def _format_task_notes(notes: list[TaskNote]) -> str:
-    """Formatear notas de tarea."""
-    if not notes:
-        return ""
-    return "\n".join(f"    [dim italic]- {_escape_rich(n.text)}[/]" for n in notes)
 
 
 def _collect_all_completed_tasks(tasks: list[Task]) -> list[Task]:
@@ -224,7 +203,11 @@ class LogPane(Container):
             title_line = f"  [dim]{time_part}[/dim]  {_escape_rich(event.title)}"
 
         # Agregar notas si existen
-        notes_text = _format_event_notes(event.notes)
+        notes_text = ""
+        if event.notes:
+            notes_text = "\n".join(
+                f"    [dim italic]- {_escape_rich(n.text)}[/]" for n in event.notes
+            )
         if notes_text:
             # Indent notes too
             return f"{title_line}\n{notes_text}"
@@ -235,7 +218,7 @@ class LogPane(Container):
         """Format completed task entry with indentation."""
         # Format: ✓ Task title
         completed = task.completed_at or task.updated_at
-        completion_time = _format_time(completed.time())
+        completion_time = completed.time().strftime("%H:%M")
         # Note: we escape only the opening bracket so Rich doesn't interpret
         # "[X]" as markup.
         suffix_parts: list[str] = []
@@ -255,7 +238,11 @@ class LogPane(Container):
         )
 
         # Agregar notas si existen
-        notes_text = _format_task_notes(task.notes)
+        notes_text = ""
+        if task.notes:
+            notes_text = "\n".join(
+                f"    [dim italic]- {_escape_rich(n.text)}[/]" for n in task.notes
+            )
 
         # Agregar subtareas si existen
         subtasks_text = ""
