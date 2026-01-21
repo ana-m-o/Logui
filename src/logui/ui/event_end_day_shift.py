@@ -3,23 +3,6 @@ from __future__ import annotations
 from datetime import date
 
 
-def shift_end_day_with_start_day_delta(
-    *,
-    new_start_day: date,
-    previous_start_day: date,
-    previous_end_day: date,
-) -> date:
-    """Shift an end day by the delta implied by a start day change.
-
-    Used by the Events form: when the user edits `start_day` and `end_day` is
-    present, we preserve the event's day-span by shifting `end_day` by the same
-    delta.
-    """
-
-    delta_days = (new_start_day - previous_start_day).days
-    return previous_end_day.fromordinal(previous_end_day.toordinal() + delta_days)
-
-
 def maybe_shift_end_day_on_start_day_change(
     *,
     changed_id: str,
@@ -37,8 +20,5 @@ def maybe_shift_end_day_on_start_day_change(
     if new_start_day == last_sync_start_day:
         return None
 
-    return shift_end_day_with_start_day_delta(
-        new_start_day=new_start_day,
-        previous_start_day=last_sync_start_day,
-        previous_end_day=last_sync_end_day,
-    )
+    delta_days = (new_start_day - last_sync_start_day).days
+    return last_sync_end_day.fromordinal(last_sync_end_day.toordinal() + delta_days)

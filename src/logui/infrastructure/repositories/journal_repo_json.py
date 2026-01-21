@@ -8,10 +8,6 @@ from logui.domain.ports.journal import JournalRepository
 from logui.infrastructure.repositories.json_store import JsonStore
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
 class JsonJournalRepository(JournalRepository):
     def __init__(self, path: Path):
         self._store = JsonStore(path)
@@ -45,7 +41,10 @@ class JsonJournalRepository(JournalRepository):
     def set_entry(self, day: date, text: str) -> None:
         cleaned = text or ""
         entries = self._load_entries()
-        entries[day.isoformat()] = {"text": cleaned, "updated_at": _utc_now_iso()}
+        entries[day.isoformat()] = {
+            "text": cleaned,
+            "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
         doc: dict[str, Any] = {"schema_version": 1, "entries": entries}
         self._store.write_atomic(doc)
 
