@@ -36,7 +36,7 @@ from logui.usecases.event_notifications import (
     due_notifications,
     notification_key,
 )
-from logui.usecases.data_directory import ensure_data_dir, get_expanded_data_directory
+from logui.usecases.data_directory import ensure_data_dir
 from logui.domain.entities.bootstrap import BootstrapConfig
 from logui.domain.entities.config import AppConfig
 
@@ -149,16 +149,6 @@ class LogUIApp(App):
         # Full config lives inside the data directory.
         self._config_repo = JsonConfigRepository(self._data_dir / "config.json")
         config = self._config_repo.load()
-
-        # Backward/compat: if old config had data_directory set, prefer it and
-        # write it to bootstrap so future startups use it.
-        legacy_dir = get_expanded_data_directory(config, fallback=self._data_dir)
-        if legacy_dir != self._data_dir:
-            self._data_dir = legacy_dir
-            ensure_data_dir(self._data_dir)
-            self._bootstrap_repo.save(BootstrapConfig(data_directory=str(legacy_dir)))
-            self._config_repo = JsonConfigRepository(self._data_dir / "config.json")
-            config = self._config_repo.load()
 
         files_dir = self._data_dir / "files"
         files_dir.mkdir(parents=True, exist_ok=True)
