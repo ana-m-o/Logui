@@ -48,6 +48,12 @@ def format_event_row(
     if ev.repeat and isinstance(ev.repeat, dict):
         freq = str(ev.repeat.get("freq") or "")
         if freq and freq != "none":
-            repeat_part = f" ({freq})"
+            repeat_part = " 🔁"
+            if freq == "daily":
+                repeat_part = " 🔁[dim]diario[/dim]"
+            elif freq == "weekly":
+                repeat_part = " 🔁[dim]semanal[/dim]"
+            elif freq == "monthly":
+                repeat_part = " 🔁[dim]mensual[/dim]"
 
     return f"{day_part} {time_part}  {ev.title}{repeat_part}"

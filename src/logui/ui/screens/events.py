@@ -472,7 +472,7 @@ class EventsPane(Container):
                 classes="page_header",
             ),
             Static(
-                "[dim]n new • e/enter edit • x delete • a notify • r repeat (soon) • m notes[/dim]",
+                "[dim]n new • e/enter edit • x delete • a notify • r repeat • m notes[/dim]",
                 classes="page_help",
             ),
             ListView(id="events_list", classes="event_list"),
@@ -829,8 +829,31 @@ class EventsPane(Container):
             self._notify(f"Error: {e}")
 
     def action_cycle_repeat(self) -> None:
-        # MVP: repeat rules are not yet implemented (no occurrence expansion).
-        self._notify("Repeat is not yet implemented")
+        """Cycle through repeat frequencies (none → daily → weekly → monthly)."""
+        ev = self._selected_event()
+        if ev is None:
+            return
+
+        try:
+            from logui.usecases import cycle_event_repeat
+
+            updated = cycle_event_repeat(self._repo, ev.id)
+            self._update_selected_item_in_place(updated)
+            
+            # Show current frequency
+            freq = "ninguna"
+            if updated.repeat and isinstance(updated.repeat, dict):
+                f = updated.repeat.get("freq", "none")
+                if f == "daily":
+                    freq = "diaria"
+                elif f == "weekly":
+                    freq = "semanal"
+                elif f == "monthly":
+                    freq = "mensual"
+            
+            self._notify(f"Repetición: {freq}")
+        except Exception as e:  # noqa: BLE001
+            self._notify(f"Error: {e}")
 
     def action_notes(self) -> None:
         ev = self._selected_event()

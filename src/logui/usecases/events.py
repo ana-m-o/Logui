@@ -41,7 +41,9 @@ _REPEAT_CYCLE = ["none", "daily", "weekly", "monthly"]
 
 
 def list_events_for_date(repo: EventRepository, day: date) -> list[Event]:
-    events = [e for e in repo.list_events() if e.date == day]
+    """List all events for a given date, including recurring occurrences."""
+    # Include events that occur on this day (base date or recurring occurrence)
+    events = [e for e in repo.list_events() if e.occurs_on(day)]
 
     def sort_key(ev: Event) -> tuple[int, int, str]:
         # all-day first

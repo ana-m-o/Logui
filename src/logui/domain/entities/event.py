@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from logui.domain.errors import ValidationError
+from logui.domain import recurrence as rec
 
 
 class RepeatFreq(str, Enum):
@@ -129,6 +130,18 @@ class Event:
         self.notes.append(note)
         self.touch(now=now)
         return note
+
+    def occurs_on(self, target: date) -> bool:
+        """Check if this event has an occurrence on the target date."""
+        return rec.occurs_on_date(self.date, self.repeat, target)
+
+    def next_occurrence(self, after: date) -> date | None:
+        """Get the next occurrence after the given date."""
+        return rec.next_occurrence(self.date, self.repeat, after)
+
+    def list_occurrences(self, start: date, end: date) -> list[date]:
+        """List all occurrences within a date range."""
+        return rec.list_occurrences(self.date, self.repeat, start, end)
 
     def to_dict(self) -> dict[str, Any]:
         return {
