@@ -53,9 +53,17 @@ except Exception:  # noqa: BLE001
 def _get_project_info() -> tuple[str, str]:
     """Return display name + version.
 
-    Prefer installed package metadata (works in wheels). Fall back to reading
-    pyproject.toml for dev/running-from-source scenarios.
+    Prefer the in-source package version (avoids picking up an older installed
+    distribution when running from a checkout). Fall back to installed package
+    metadata, then pyproject.toml for dev/running-from-source scenarios.
     """
+    try:
+        from logui import __version__ as pkg_version
+
+        return ("LogUI", pkg_version)
+    except Exception as e:  # noqa: BLE001
+        _log.debug("Failed reading logui.__version__: %s", e)
+
     try:
         version = importlib_metadata.version("logui")
         return ("LogUI", version)
@@ -67,15 +75,15 @@ def _get_project_info() -> tuple[str, str]:
     try:
         if tomllib is None:
             return ("LogUI", "0.0.0")
-        
+
         # Find pyproject.toml relative to this file
         current_file = Path(__file__)
         project_root = current_file.parents[3]  # logui/ui/app.py -> src -> code -> project root
         pyproject_path = project_root / "pyproject.toml"
-        
+
         if not pyproject_path.exists():
             return ("LogUI", "0.0.0")
-        
+
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
             project = data.get("project", {})
