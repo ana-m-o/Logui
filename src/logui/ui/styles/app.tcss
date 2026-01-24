@@ -199,6 +199,10 @@ ListView {
     .event_row {
         height: auto;
 
+        .event_row_main {
+            width: 1fr;
+        }
+
         &.is_in_progress {
             .event_row_main {
                 color: $accent;
@@ -251,6 +255,12 @@ ListView {
         width: 2;
         margin-right: 1;
     }
+
+    .event_repeat {
+        width: auto;
+        margin-left: 1;
+        color: $text-muted;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -280,6 +290,12 @@ ListView {
 
     .task_title {
         width: 1fr;
+    }
+
+    .task_repeat {
+        width: auto;
+        margin-left: 1;
+        color: $text-muted;
     }
 
     .task_due {

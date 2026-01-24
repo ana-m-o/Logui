@@ -623,10 +623,26 @@ class EventsPane(Container):
         if notes_block:
             notes_w.add_class("is-visible")
 
+        # Repeat indicator
+        repeat_text = ""
+        if ev.repeat and isinstance(ev.repeat, dict):
+            freq = str(ev.repeat.get("freq") or "")
+            if freq and freq != "none":
+                if freq == "daily":
+                    repeat_text = " 🔁 diario"
+                elif freq == "weekly":
+                    repeat_text = " 🔁 semanal"
+                elif freq == "monthly":
+                    repeat_text = " 🔁 mensual"
+                else:
+                    repeat_text = " 🔁"
+        repeat_w = Static(repeat_text, markup=False, classes="event_repeat")
+
         row = Container(
             Horizontal(
                 Static(self._event_notify_glyph(ev), classes="event_notify", markup=False),
                 Label(main, classes="event_row_main"),
+                repeat_w,
                 classes="event_row_main_line",
             ),
             notes_w,
@@ -674,6 +690,21 @@ class EventsPane(Container):
 
             label = item.query_one(".event_row_main", Label)
             label.update(self._format_row(updated))
+
+            # Update repeat indicator
+            repeat_text = ""
+            if updated.repeat and isinstance(updated.repeat, dict):
+                freq = str(updated.repeat.get("freq") or "")
+                if freq and freq != "none":
+                    if freq == "daily":
+                        repeat_text = " 🔁 diario"
+                    elif freq == "weekly":
+                        repeat_text = " 🔁 semanal"
+                    elif freq == "monthly":
+                        repeat_text = " 🔁 mensual"
+                    else:
+                        repeat_text = " 🔁"
+            item.query_one(".event_repeat", Static).update(repeat_text)
 
             notes_block = _format_event_notes_block(updated.notes or [])
             notes_w = item.query_one(".event_row_notes", Static)

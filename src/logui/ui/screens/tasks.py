@@ -341,15 +341,40 @@ class TasksPane(Container):
             rows.extend(_flatten_task_tree(t, depth=0, parent_id=None))
 
         today = today or today_local()
-        # Hide DONE tasks from previous days; keep only those completed today.
-        # (Non-DONE tasks remain visible regardless of date.)
+        # Filter tasks:
+        # - Hide DONE tasks from previous days (keep only completed today)
+        # - For tasks with recurrence and due_date, check if they occur on/after today
         filtered_rows: list[_TaskRow] = []
         for row in rows:
-            if row.task.status == TaskStatus.DONE:
-                completed = row.task.completed_at or row.task.updated_at
+            task = row.task
+            
+            # Hide DONE tasks from previous days
+            if task.status == TaskStatus.DONE:
+                completed = task.completed_at or task.updated_at
                 done_day = completed.astimezone().date()
                 if done_day < today:
                     continue
+            
+            # For tasks with recurrence and due_date, check if they're still active
+            if task.repeat and isinstance(task.repeat, dict) and task.due_date:
+                freq = task.repeat.get("freq")
+                if freq and freq != "none":
+                    # Check if recurrence is still active
+                    until = task.repeat.get("until")
+                    if until is not None:
+                        # Has 'until' date, check if we're past it
+                        if isinstance(until, str):
+                            from datetime import datetime
+                            try:
+                                until_date = datetime.fromisoformat(until).date()
+                                if today > until_date:
+                                    continue
+                            except Exception:  # noqa: BLE001
+                                pass
+                        elif isinstance(until, date):
+                            if today > until:
+                                continue
+            
             filtered_rows.append(row)
 
         self._rows = filtered_rows
@@ -419,18 +444,19 @@ class TasksPane(Container):
         link_w = Static(link_text, markup=False, classes="task_link")
 
         # Repeat indicator
-        repeat_w: Widget = Static("")
+        repeat_text = ""
         if t.repeat and isinstance(t.repeat, dict):
             freq = str(t.repeat.get("freq") or "")
             if freq and freq != "none":
-                repeat_indicator = " 🔁"
                 if freq == "daily":
-                    repeat_indicator = " 🔁[dim]diario[/dim]"
+                    repeat_text = " 🔁 diario"
                 elif freq == "weekly":
-                    repeat_indicator = " 🔁[dim]semanal[/dim]"
+                    repeat_text = " 🔁 semanal"
                 elif freq == "monthly":
-                    repeat_indicator = " 🔁[dim]mensual[/dim]"
-                repeat_w = Static(repeat_indicator, classes="task_repeat_icon")
+                    repeat_text = " 🔁 mensual"
+                else:
+                    repeat_text = " 🔁"
+        repeat_w = Static(repeat_text, markup=False, classes="task_repeat")
 
         row_widget = Horizontal(priority, status, title, link_w, repeat_w, due_w, classes="task_list_row")
 
@@ -512,6 +538,21 @@ class TasksPane(Container):
             if updated.link is not None:
                 link_text = updated.link.display_text()
             item.query_one(".task_link", Static).update(link_text)
+
+            # Update repeat indicator
+            repeat_text = ""
+            if updated.repeat and isinstance(updated.repeat, dict):
+                freq = str(updated.repeat.get("freq") or "")
+                if freq and freq != "none":
+                    if freq == "daily":
+                        repeat_text = " 🔁 diario"
+                    elif freq == "weekly":
+                        repeat_text = " 🔁 semanal"
+                    elif freq == "monthly":
+                        repeat_text = " 🔁 mensual"
+                    else:
+                        repeat_text = " 🔁"
+            item.query_one(".task_repeat", Static).update(repeat_text)
 
             if updated.status == TaskStatus.DONE:
                 item.add_class("task_done")
@@ -709,9 +750,16 @@ class TasksPane(Container):
 
     def action_cycle_repeat(self) -> None:
         """Cycle through repeat frequencies (none → daily → weekly → monthly)."""
-        task = self._selected_task()
-        if task is None:
+        selected_row = self._selected_row()
+        if selected_row is None:
             return
+        
+        # Subtasks cannot have independent repetition
+        if selected_row.depth > 0:
+            self._notify("Las subtareas no pueden tener repetición independiente")
+            return
+        
+        task = selected_row.task
         
         try:
             from logui.usecases import cycle_task_repeat
