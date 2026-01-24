@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from logui.domain.errors import ValidationError
+from logui.domain import recurrence as rec
 
 
 class TaskStatus(str, Enum):
@@ -99,6 +100,7 @@ class Task:
     priority: bool
     due_date: date | None
     link: TaskLink | None = None
+    repeat: dict[str, Any] | None = None
     notes: list[TaskNote] = field(default_factory=list)
     subtasks: list["Task"] = field(default_factory=list)
     completed_at: datetime | None = None
@@ -116,6 +118,7 @@ class Task:
         priority: bool = False,
         due_date: date | None = None,
         link: TaskLink | None = None,
+        repeat: dict[str, Any] | None = None,
     ) -> "Task":
         cleaned = (title or "").strip()
         if not cleaned:
@@ -130,6 +133,7 @@ class Task:
             priority=bool(priority),
             due_date=due_date,
             link=link,
+            repeat=repeat,
             completed_at=completed_at,
             created_at=ts,
             updated_at=ts,
@@ -148,6 +152,23 @@ class Task:
         self.subtasks.append(subtask)
         self.touch(now=now)
 
+    def occurs_on(self, target: date) -> bool:
+        """Check if this task has an occurrence on the target date.
+        
+        For tasks with due_date, check if the occurrence falls on that date.
+        If no due_date, recurring tasks occur every interval starting from created date.
+        """
+        if not self.due_date:
+            # No due date: can't determine occurrences
+            return False
+        return rec.occurs_on_date(self.due_date, self.repeat, target)
+
+    def next_occurrence(self, after: date) -> date | None:
+        """Get the next occurrence after the given date."""
+        if not self.due_date:
+            return None
+        return rec.next_occurrence(self.due_date, self.repeat, after)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
@@ -157,6 +178,7 @@ class Task:
             "priority": self.priority,
             "due_date": self.due_date.isoformat() if self.due_date else None,
             "link": self.link.to_dict() if self.link else None,
+            "repeat": self.repeat,
             "notes": [n.to_dict() for n in self.notes],
             "subtasks": [t.to_dict() for t in self.subtasks],
             "completed_at": _format_dt_utc(self.completed_at) if self.completed_at else None,
@@ -190,6 +212,7 @@ class Task:
                 priority=bool(data.get("priority", False)),
                 due_date=due_date,
                 link=link,
+                repeat=data.get("repeat"),
                 notes=[TaskNote.from_dict(n) for n in (data.get("notes") or [])],
                 subtasks=[Task.from_dict(t) for t in (data.get("subtasks") or [])],
                 completed_at=completed_at,

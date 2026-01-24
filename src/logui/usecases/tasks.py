@@ -38,6 +38,8 @@ _STATUS_CYCLE = [
     TaskStatus.DONE,
 ]
 
+_REPEAT_CYCLE = ["none", "daily", "weekly", "monthly"]
+
 
 def list_tasks(repo: TaskRepository) -> list[Task]:
     return list(repo.list_tasks())
@@ -65,6 +67,7 @@ def _clone_task(task: Task) -> Task:
         completed_at=task.completed_at,
         created_at=task.created_at,
         updated_at=task.updated_at,
+        repeat=task.repeat,
     )
 
 
@@ -248,6 +251,60 @@ def move_task_down(
     now: datetime | None = None,
 ) -> Task:
     return _move_task(repo, task_id, direction=+1, now=now)
+
+
+def cycle_task_repeat(
+    repo: TaskRepository,
+    task_id: UUID,
+    *,
+    now: datetime | None = None,
+) -> Task:
+    """Cycle through repeat frequencies for a task: none → daily → weekly → monthly."""
+    root, task, parent = _find_root_and_task(repo, task_id)
+    
+    current = "none"
+    if task.repeat and isinstance(task.repeat, dict) and task.repeat.get("freq"):
+        current = str(task.repeat.get("freq"))
+    
+    try:
+        idx = _REPEAT_CYCLE.index(current)
+    except ValueError:
+        idx = 0
+    
+    next_freq = _REPEAT_CYCLE[(idx + 1) % len(_REPEAT_CYCLE)]
+    
+    # Create a new Task instance with updated repeat field
+    updated = Task(
+        id=task.id,
+        order=task.order,
+        title=task.title,
+        status=task.status,
+        priority=task.priority,
+        due_date=task.due_date,
+        link=task.link,
+        repeat={"freq": next_freq},
+        notes=list(task.notes),
+        subtasks=list(task.subtasks),
+        completed_at=task.completed_at,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+    )
+    
+    updated.touch(now=now)
+    
+    # If this is a root task, just save it
+    if parent is None:
+        repo.upsert_task(updated)
+        return updated
+    
+    # If it's a subtask, replace in parent's subtasks list
+    parent.subtasks = [
+        updated if t.id == task_id else t for t in parent.subtasks
+    ]
+    parent.touch(now=now)
+    root.touch(now=now)
+    repo.upsert_task(root)
+    return updated
 
 
 def _move_task(

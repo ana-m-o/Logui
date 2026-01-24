@@ -282,6 +282,7 @@ class TasksPane(Container):
         Binding("x", "delete", "Delete", show=False),
         Binding("c", "cycle_status", "Cycle status", show=False),
         Binding("p", "toggle_priority", "Priority", show=False),
+        Binding("r", "cycle_repeat", "Repeat", show=False),
         Binding("o", "open_link", "Open link", show=False),
         Binding("alt+up", "move_up", "Move up", show=False),
         Binding("alt+down", "move_down", "Move down", show=False),
@@ -300,7 +301,7 @@ class TasksPane(Container):
             ),
             Static(
                 "[dim]n new • s subtask • m notes • e/enter edit • x delete • c status • "
-                "p priority • o open link • alt+↑/↓ reorder[/dim]",
+                "p priority • r repeat • o open link • alt+↑/↓ reorder[/dim]",
                 classes="page_help",
             ),
             ListView(id="tasks_list", classes="task_list"),
@@ -417,7 +418,21 @@ class TasksPane(Container):
             link_text = t.link.display_text()
         link_w = Static(link_text, markup=False, classes="task_link")
 
-        row_widget = Horizontal(priority, status, title, link_w, due_w, classes="task_list_row")
+        # Repeat indicator
+        repeat_w: Widget = Static("")
+        if t.repeat and isinstance(t.repeat, dict):
+            freq = str(t.repeat.get("freq") or "")
+            if freq and freq != "none":
+                repeat_indicator = " 🔁"
+                if freq == "daily":
+                    repeat_indicator = " 🔁[dim]diario[/dim]"
+                elif freq == "weekly":
+                    repeat_indicator = " 🔁[dim]semanal[/dim]"
+                elif freq == "monthly":
+                    repeat_indicator = " 🔁[dim]mensual[/dim]"
+                repeat_w = Static(repeat_indicator, classes="task_repeat_icon")
+
+        row_widget = Horizontal(priority, status, title, link_w, repeat_w, due_w, classes="task_list_row")
 
         notes_block = _format_task_notes_block(t.notes or [], depth=depth)
         notes_w = Static(notes_block, classes="task_row_notes", markup=False)
@@ -689,6 +704,33 @@ class TasksPane(Container):
         try:
             updated = toggle_task_priority(self._repo, task.id)
             self._update_selected_item_in_place(updated)
+        except ValidationError as e:
+            self._notify(f"Error: {e}")
+
+    def action_cycle_repeat(self) -> None:
+        """Cycle through repeat frequencies (none → daily → weekly → monthly)."""
+        task = self._selected_task()
+        if task is None:
+            return
+        
+        try:
+            from logui.usecases import cycle_task_repeat
+
+            updated = cycle_task_repeat(self._repo, task.id)
+            self._update_selected_item_in_place(updated)
+            
+            # Show current frequency
+            freq = "ninguna"
+            if updated.repeat and isinstance(updated.repeat, dict):
+                f = updated.repeat.get("freq", "none")
+                if f == "daily":
+                    freq = "diaria"
+                elif f == "weekly":
+                    freq = "semanal"
+                elif f == "monthly":
+                    freq = "mensual"
+            
+            self._notify(f"Repetición: {freq}")
         except ValidationError as e:
             self._notify(f"Error: {e}")
 
