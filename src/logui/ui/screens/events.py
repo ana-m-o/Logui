@@ -487,9 +487,13 @@ class EventsPane(Container):
             _log.debug("Failed starting events temporal refresh: %s", e)
 
     def on_day_rollover(self, *, today: date) -> None:
-        selected = self._selected_event()
-        keep_id = str(selected.id) if selected is not None else None
-        self._refresh(keep_id=keep_id, keep_scroll=True, focus=False, today=today)
+        # Process recurring events that need to be cloned
+        from logui.usecases.events import process_recurring_events
+        process_recurring_events(self._repo, today=today)
+        
+        # Force a complete refresh without keeping old selection
+        # (the selected event might be from yesterday and no longer visible)
+        self._refresh(keep_id=None, keep_scroll=False, focus=False, today=today)
 
     def _refresh_temporal_styles(self) -> None:
         if not self._events:
@@ -629,11 +633,19 @@ class EventsPane(Container):
             freq = str(ev.repeat.get("freq") or "")
             if freq and freq != "none":
                 if freq == "daily":
-                    repeat_text = " 🔁 diario"
+                    repeat_text = " 🔁 daily"
                 elif freq == "weekly":
-                    repeat_text = " 🔁 semanal"
+                    if ev.date:
+                        day_name = ev.date.strftime("%A").lower()
+                        repeat_text = f" 🔁 {day_name}"
+                    else:
+                        repeat_text = " 🔁 weekly"
                 elif freq == "monthly":
-                    repeat_text = " 🔁 mensual"
+                    if ev.date:
+                        day_num = ev.date.day
+                        repeat_text = f" 🔁 day {day_num}"
+                    else:
+                        repeat_text = " 🔁 monthly"
                 else:
                     repeat_text = " 🔁"
         repeat_w = Static(repeat_text, markup=False, classes="event_repeat")
@@ -697,11 +709,19 @@ class EventsPane(Container):
                 freq = str(updated.repeat.get("freq") or "")
                 if freq and freq != "none":
                     if freq == "daily":
-                        repeat_text = " 🔁 diario"
+                        repeat_text = " 🔁 daily"
                     elif freq == "weekly":
-                        repeat_text = " 🔁 semanal"
+                        if updated.start_date:
+                            day_name = updated.start_date.strftime("%A").lower()
+                            repeat_text = f" 🔁 {day_name}"
+                        else:
+                            repeat_text = " 🔁 weekly"
                     elif freq == "monthly":
-                        repeat_text = " 🔁 mensual"
+                        if updated.start_date:
+                            day_num = updated.start_date.day
+                            repeat_text = f" 🔁 day {day_num}"
+                        else:
+                            repeat_text = " 🔁 monthly"
                     else:
                         repeat_text = " 🔁"
             item.query_one(".event_repeat", Static).update(repeat_text)

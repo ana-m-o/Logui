@@ -449,11 +449,19 @@ class TasksPane(Container):
             freq = str(t.repeat.get("freq") or "")
             if freq and freq != "none":
                 if freq == "daily":
-                    repeat_text = " 🔁 diario"
+                    repeat_text = " 🔁 daily"
                 elif freq == "weekly":
-                    repeat_text = " 🔁 semanal"
+                    if t.due_date:
+                        day_name = t.due_date.strftime("%A").lower()
+                        repeat_text = f" 🔁 {day_name}"
+                    else:
+                        repeat_text = " 🔁 weekly"
                 elif freq == "monthly":
-                    repeat_text = " 🔁 mensual"
+                    if t.due_date:
+                        day_num = t.due_date.day
+                        repeat_text = f" 🔁 day {day_num}"
+                    else:
+                        repeat_text = " 🔁 monthly"
                 else:
                     repeat_text = " 🔁"
         repeat_w = Static(repeat_text, markup=False, classes="task_repeat")
@@ -545,11 +553,19 @@ class TasksPane(Container):
                 freq = str(updated.repeat.get("freq") or "")
                 if freq and freq != "none":
                     if freq == "daily":
-                        repeat_text = " 🔁 diario"
+                        repeat_text = " 🔁 daily"
                     elif freq == "weekly":
-                        repeat_text = " 🔁 semanal"
+                        if updated.due_date:
+                            day_name = updated.due_date.strftime("%A").lower()
+                            repeat_text = f" 🔁 {day_name}"
+                        else:
+                            repeat_text = " 🔁 weekly"
                     elif freq == "monthly":
-                        repeat_text = " 🔁 mensual"
+                        if updated.due_date:
+                            day_num = updated.due_date.day
+                            repeat_text = f" 🔁 day {day_num}"
+                        else:
+                            repeat_text = " 🔁 monthly"
                     else:
                         repeat_text = " 🔁"
             item.query_one(".task_repeat", Static).update(repeat_text)
@@ -732,8 +748,24 @@ class TasksPane(Container):
         if task is None:
             return
         try:
+            # Check if this is a recurring task that might clone
+            will_clone = (
+                task.status != TaskStatus.DONE
+                and task.repeat 
+                and isinstance(task.repeat, dict) 
+                and task.repeat.get("freq") 
+                and task.repeat.get("freq") != "none"
+            )
+            
             updated = cycle_task_status(self._repo, task.id)
-            self._update_selected_item_in_place(updated)
+            
+            # If marked as DONE and it was recurring, refresh the whole list
+            # (a new task may have been cloned)
+            if updated.status == TaskStatus.DONE and will_clone:
+                self._refresh(keep_id=str(updated.id))
+            else:
+                self._update_selected_item_in_place(updated)
+            
             self._notify(f"Task status: {self._status_label(updated.status)}")
         except ValidationError as e:
             self._notify(f"Error: {e}")

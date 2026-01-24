@@ -382,3 +382,66 @@ def _duration_minutes(start: time, end: time, end_day_offset: int) -> int:
     start_min = start.hour * 60 + start.minute
     end_min = end.hour * 60 + end.minute + (end_day_offset * 24 * 60)
     return end_min - start_min
+
+
+def process_recurring_events(
+    repo: EventRepository,
+    *,
+    today: date,
+    now: datetime | None = None,
+) -> list[Event]:
+    """Process recurring events that have passed and clone them for next occurrence.
+    
+    Returns list of newly created events.
+    """
+    new_events: list[Event] = []
+    
+    for event in repo.list_events():
+        # Skip non-recurring events
+        if not event.repeat or not isinstance(event.repeat, dict):
+            continue
+        
+        freq = event.repeat.get("freq")
+        if not freq or freq == "none":
+            continue
+        
+        # Check if event has already passed
+        event_end_date = event.date
+        if event.end_day_offset and event.end_day_offset > 0:
+            from datetime import timedelta
+            event_end_date = event.date + timedelta(days=event.end_day_offset)
+        
+        # Only process events that have already passed
+        if event_end_date >= today:
+            continue
+        
+        # Calculate next occurrence from today onwards
+        from datetime import timedelta
+        next_date = event.next_occurrence(after=today - timedelta(days=1))
+        if next_date is None:
+            continue
+        
+        # Create a new event for the next occurrence
+        new_event = Event.create(
+            title=event.title,
+            day=next_date,
+            now=now,
+            start_time=event.start_time,
+            end_time=event.end_time,
+            end_day_offset=event.end_day_offset,
+            notify=event.notify,
+            notify_minutes_before=event.notify_minutes_before,
+            repeat=dict(event.repeat),
+        )
+        new_event.notes = list(event.notes)
+        
+        # Remove recurrence from original event (it's now a one-time past event)
+        event.repeat = {"freq": "none"}
+        event.touch(now=now)
+        
+        # Save both
+        repo.upsert_event(event)
+        repo.upsert_event(new_event)
+        new_events.append(new_event)
+    
+    return new_events

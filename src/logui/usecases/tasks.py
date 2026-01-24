@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from logui.domain.entities.task import Task, TaskLink, TaskNote, TaskStatus, utc_now
@@ -212,7 +212,7 @@ def cycle_task_status(
     *,
     now: datetime | None = None,
 ) -> Task:
-    root, task, _parent = _find_root_and_task(repo, task_id)
+    root, task, parent = _find_root_and_task(repo, task_id)
 
     try:
         idx = _STATUS_CYCLE.index(task.status)
@@ -225,9 +225,64 @@ def cycle_task_status(
     task.status = next_status
 
     if next_status == TaskStatus.DONE and prev_status != TaskStatus.DONE:
-        task.completed_at = now or utc_now()
+        actual_now = now or utc_now()
+        task.completed_at = actual_now
+        
+        # If task has recurrence but no due_date, auto-assign due_date to today
+        if task.repeat and isinstance(task.repeat, dict) and task.due_date is None:
+            freq = task.repeat.get("freq")
+            if freq and freq != "none":
+                task.due_date = actual_now.astimezone().date()
+        
+        # If task has recurrence and due_date, clone it for the next occurrence
+        if task.repeat and isinstance(task.repeat, dict) and task.due_date:
+            freq = task.repeat.get("freq")
+            if freq and freq != "none":
+                next_due = task.next_occurrence(after=task.due_date)
+                if next_due is not None:
+                    # Create a new task for the next occurrence
+                    new_task = Task.create(
+                        title=task.title,
+                        status=TaskStatus.TODO,
+                        priority=task.priority,
+                        due_date=next_due,
+                        link=task.link,
+                    )
+                    new_task.repeat = dict(task.repeat)
+                    new_task.notes = list(task.notes)
+                    
+                    # Clone subtasks recursively
+                    for subtask in task.subtasks:
+                        new_subtask = Task.create(
+                            title=subtask.title,
+                            status=TaskStatus.TODO,
+                            priority=subtask.priority,
+                            due_date=subtask.due_date,
+                            link=subtask.link,
+                        )
+                        new_subtask.notes = list(subtask.notes)
+                        new_task.subtasks.append(new_subtask)
+                    
+                    # Calculate order: place after the current task
+                    new_task.order = task.order + 0.5
+                    
+                    # Add to parent or root level
+                    if parent is not None:
+                        parent.subtasks.append(new_task)
+                    else:
+                        # Task is at root level, need to add it separately
+                        # First save the current task as DONE
+                        repo.upsert_task(root)
+                        # Then insert the new task
+                        repo.upsert_task(new_task)
+                        task._validate_invariants()  # noqa: SLF001
+                        task.touch(now=now)
+                        root.touch(now=now)
+                        return task
+        
     elif next_status != TaskStatus.DONE and prev_status == TaskStatus.DONE:
         task.completed_at = None
+    
     task._validate_invariants()  # noqa: SLF001
     task.touch(now=now)
     root.touch(now=now)
@@ -259,7 +314,11 @@ def cycle_task_repeat(
     *,
     now: datetime | None = None,
 ) -> Task:
-    """Cycle through repeat frequencies for a task: none → daily → weekly → monthly."""
+    """Cycle through repeat frequencies for a task: none → daily → weekly → monthly.
+    
+    If activating repetition (from 'none' to any frequency) and the task has no due_date,
+    automatically assigns due_date to today.
+    """
     root, task, parent = _find_root_and_task(repo, task_id)
     
     current = "none"
@@ -273,6 +332,13 @@ def cycle_task_repeat(
     
     next_freq = _REPEAT_CYCLE[(idx + 1) % len(_REPEAT_CYCLE)]
     
+    # If activating repetition (from "none" to any frequency) and task has no due_date,
+    # automatically assign due_date to today
+    new_due_date = task.due_date
+    if current == "none" and next_freq != "none" and task.due_date is None:
+        actual_now = now or datetime.now(tz=timezone.utc)
+        new_due_date = actual_now.astimezone().date()
+    
     # Create a new Task instance with updated repeat field
     updated = Task(
         id=task.id,
@@ -280,7 +346,7 @@ def cycle_task_repeat(
         title=task.title,
         status=task.status,
         priority=task.priority,
-        due_date=task.due_date,
+        due_date=new_due_date,
         link=task.link,
         repeat={"freq": next_freq},
         notes=list(task.notes),

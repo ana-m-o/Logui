@@ -53,8 +53,23 @@ def occurs_on_date(base_date: date, repeat: dict[str, Any] | None, target: date)
     
     elif freq == "monthly":
         # Monthly: same day of month, N months apart
+        # If the base day doesn't exist in target month, use last day of target month
         months_diff = (target.year - base_date.year) * 12 + (target.month - base_date.month)
-        return target.day == base_date.day and months_diff % interval == 0
+        if months_diff % interval != 0:
+            return False
+        
+        # Check if target day matches
+        # If base_date.day exists in target month, must match exactly
+        # If base_date.day doesn't exist in target month, target must be last day of month
+        from calendar import monthrange
+        _, last_day_of_target = monthrange(target.year, target.month)
+        
+        if base_date.day <= last_day_of_target:
+            # Day exists in target month, must match exactly
+            return target.day == base_date.day
+        else:
+            # Day doesn't exist in target month, must be last day
+            return target.day == last_day_of_target
     
     return False
 
