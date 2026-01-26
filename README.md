@@ -6,8 +6,12 @@ The goal of this application is to learn and explore Textual and terminal-based 
 
 ## Features
 
-- **Tasks:** Persistent management with states, priorities, subtasks, notes, and optional links (manual persistent order; when created, tasks/subtasks with due dates are placed at the top by default)
-- **Events:** Schedule with terminal alerts (toast + local sound), flexible times and repetition (coming soon; does not yet expand occurrences)
+- **Tasks:** Persistent management with states, priorities, subtasks, notes, optional links, and recurrence (daily/weekly/monthly)
+  - Tasks with recurrence automatically clone for the next occurrence when marked as DONE
+  - Manual persistent order; when created, tasks/subtasks with due dates are placed at the top by default
+- **Events:** Schedule with terminal alerts (toast + local sound), flexible times and recurrence (daily/weekly/monthly)
+  - Recurring events automatically clone for the next occurrence during day rollover
+  - Monthly recurrence handles edge cases (e.g., day 31 becomes last day of month in February)
 - **Journal:** Entries by date with a side history (most recent first) and editor with date change
 - **Files:** Management of `.txt` files with a configurable external editor
 - **100% keyboard:** Navigation and operation fully keyboard-oriented
@@ -145,6 +149,10 @@ Encryption is optional and can be enabled from the configuration.
 - `s` → Create subtask (in Tasks)
 - `m` → Notes for the selected item (in Tasks/Events)
 - `o` → Open task link (in Tasks, if present)
+- `r` → Cycle repeat frequency (in Tasks/Events): none → daily → weekly → monthly
+- `c` → Cycle task status (in Tasks): todo → in_progress → postponed → in_review → done
+- `p` → Toggle priority (in Tasks)
+- `a` → Toggle notification (in Events)
 - `ctrl+q` → Quit
 
 Notes about Files:

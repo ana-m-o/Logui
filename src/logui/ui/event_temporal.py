@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 
 from logui.domain.entities.event import Event
+from logui.domain.recurrence import occurs_on_date
 
 
 def is_visible_in_events_pane(ev: Event, *, today: date) -> bool:
@@ -11,21 +12,22 @@ def is_visible_in_events_pane(ev: Event, *, today: date) -> bool:
     Shows events that:
     - Are on or after today (for non-recurring events), OR
     - Are today's past events (show events from today even if they ended), OR
-    - Are multi-day events still ongoing (end date >= today)
+    - Are multi-day events still ongoing (end date >= today), OR
+    - Are recurring events with base date >= today (past recurring events get cloned)
     """
     
-    # For events with recurrence, only show if they occur today or in the future
+    # For events with recurrence, only show if base date is today or later
+    # (Past recurring events should have been cloned during rollover)
     if ev.repeat and isinstance(ev.repeat, dict):
         freq = ev.repeat.get("freq")
         if freq and freq != "none":
-            # Only show if the event's date is today or in the future
+            # Only show recurring events if their base date is today or in the future
             return ev.date >= today
     
     # For non-recurring events (including events that were recurring but are now cloned),
     # check if the event's end date (considering multi-day offset) is today or later
     end_day = ev.date
     if ev.end_day_offset and ev.end_day_offset > 0:
-        from datetime import timedelta
         end_day = ev.date + timedelta(days=ev.end_day_offset)
     
     return end_day >= today

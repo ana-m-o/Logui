@@ -86,6 +86,9 @@ ListView {
     height: 1fr;
 }
 
+.mt-1 {
+    margin-top: 1;
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Modals                                                                    */
@@ -160,13 +163,23 @@ ListView {
 
     .modal_row {
         height: auto;
+        align-vertical: top;
 
-        Input {
+        Input, Select, Container {
             width: 1fr;
+            height: auto;
         }
 
-        Input:first-child {
+        Input:first-child, Select:first-child, Container:first-child {
             margin-right: 1;
+        }
+
+        .half_col {
+            width: 50%;
+        }
+
+        .no_label_col {
+            margin-top: 2;
         }
     }
 
@@ -371,7 +384,14 @@ ListView {
 /* -------------------------------------------------------------------------- */
 /*  Files                                                                     */
 /* -------------------------------------------------------------------------- */
-
+#repeat_days_container_weekly,
+#repeat_days_container_monthly {
+    height: auto;
+    
+    Label, Input {
+        height: auto;
+    }
+}
 #files_list {
     height: 1fr;
 }

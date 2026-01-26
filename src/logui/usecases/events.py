@@ -415,10 +415,21 @@ def process_recurring_events(
         if event_end_date >= today:
             continue
         
-        # Calculate next occurrence from today onwards
-        from datetime import timedelta
-        next_date = event.next_occurrence(after=today - timedelta(days=1))
+        # Find the next occurrence that is >= today
+        next_date = event.next_occurrence(after=event_end_date)
         if next_date is None:
+            continue
+        
+        # Keep advancing until we find a date >= today
+        max_iterations = 365
+        iteration = 0
+        while next_date < today and iteration < max_iterations:
+            next_date = event.next_occurrence(after=next_date)
+            if next_date is None:
+                break
+            iteration += 1
+        
+        if next_date is None or next_date < today:
             continue
         
         # Create a new event for the next occurrence
@@ -434,14 +445,12 @@ def process_recurring_events(
             repeat=dict(event.repeat),
         )
         new_event.notes = list(event.notes)
+        repo.upsert_event(new_event)
+        new_events.append(new_event)
         
         # Remove recurrence from original event (it's now a one-time past event)
         event.repeat = {"freq": "none"}
         event.touch(now=now)
-        
-        # Save both
         repo.upsert_event(event)
-        repo.upsert_event(new_event)
-        new_events.append(new_event)
     
     return new_events

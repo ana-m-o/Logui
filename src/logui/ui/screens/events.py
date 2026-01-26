@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time
+from typing import Any
 
-from textual import events
+from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
@@ -15,6 +16,7 @@ from textual.widgets import (
     Label,
     ListItem,
     ListView,
+    Select,
     Static,
 )
 
@@ -58,6 +60,14 @@ try:
     from textual.css.query import NoMatches, TooManyMatches
 except Exception:  # noqa: BLE001
     NoMatches = TooManyMatches = Exception  # type: ignore[misc,assignment]
+
+
+_REPEAT_FREQ_OPTIONS: list[tuple[str, str]] = [
+    ("None", "none"),
+    ("Daily", "daily"),
+    ("Weekly", "weekly"),
+    ("Monthly", "monthly"),
+]
 
 
 def _format_event_notes_block(notes: list[EventNote]) -> str:
@@ -109,6 +119,7 @@ class EventFormResult:
     end_day_offset: int
     notify: bool
     notify_minutes_before: int | None
+    repeat: dict[str, any] | None
 
 
 class EventFormScreen(ModalScreen[EventFormResult | None]):
@@ -147,6 +158,23 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
             end_day_offset=self._initial.end_day_offset,
         )
 
+        # Extract repeat info
+        self._current_freq = "none"
+        self._current_days_str = ""
+        
+        if initial.repeat and isinstance(initial.repeat, dict):
+            self._current_freq = initial.repeat.get("freq", "none")
+            if self._current_freq == "weekly":
+                weekdays = initial.repeat.get("weekdays", [])
+                if weekdays:
+                    # Convert weekday numbers to abbreviations
+                    day_abbr = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                    self._current_days_str = ", ".join(day_abbr[d] for d in sorted(weekdays))
+            elif self._current_freq == "monthly":
+                monthdays = initial.repeat.get("monthdays", [])
+                if monthdays:
+                    self._current_days_str = ", ".join(str(d) for d in sorted(monthdays))
+
     def compose(self) -> ComposeResult:
         start_day_value = self._initial.start_day.isoformat() if self._prefill_dates else ""
         end_day_default = initial_end_day_default(
@@ -156,6 +184,15 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
         end_day_value = ""
         if self._prefill_dates and end_day_default is not None:
             end_day_value = end_day_default.isoformat()
+
+        # Determine initial days string for repeat
+        initial_days_str = self._current_days_str
+        if not initial_days_str and self._initial.start_day:
+            if self._current_freq == "weekly":
+                day_abbr = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                initial_days_str = day_abbr[self._initial.start_day.weekday()]
+            elif self._current_freq == "monthly":
+                initial_days_str = str(self._initial.start_day.day)
 
         yield Container(
             Label(self._dialog_title, id="form_title", classes="modal_title"),
@@ -200,7 +237,39 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
                 classes="modal_row",
             ),
             Static("", id="end_day_hint", classes="hint"),
-            Checkbox("Notify", value=self._initial.notify, id="notify"),
+            Horizontal(
+                Container(
+                    Label("Repeat"),
+                    Select(
+                        _REPEAT_FREQ_OPTIONS,
+                        value=self._current_freq,
+                        id="repeat_freq",
+                    ),
+                    classes="half_col"
+                ),
+                Container(
+                    Label("Days (e.g. mon, wed, fri)"),
+                    Input(
+                        value=initial_days_str,
+                        placeholder="mon, tue, wed, thu, fri, sat, sun",
+                        id="repeat_weekdays",
+                    ),
+                    id="repeat_days_container_weekly",
+                    disabled=True,
+                ),
+                Container(
+                    Label("Days of month (e.g. 1, 15, 30)"),
+                    Input(
+                        value=initial_days_str,
+                        placeholder="1, 15, 30",
+                        id="repeat_monthdays",
+                    ),
+                    id="repeat_days_container_monthly",
+                    disabled=True,
+                ),
+                classes="modal_row",
+            ),
+            Checkbox("Notify", value=self._initial.notify, id="notify", classes="mt-1"),
             Label("Notify (minutes before)"),
             Input(
                 value=(
@@ -218,6 +287,63 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
 
     def on_mount(self) -> None:
         self.query_one("#title", Input).focus()
+        self._apply_repeat_freq_ui(self._current_freq)
+
+    def _apply_repeat_freq_ui(self, freq: str) -> None:
+        weekly_container = self.query_one("#repeat_days_container_weekly", Container)
+        monthly_container = self.query_one("#repeat_days_container_monthly", Container)
+        start_day_input = self.query_one("#start_day", Input)
+
+        freq = (freq or "none").strip() or "none"
+
+        # Mirror behavior: enabling repetition implies having a base date.
+        if freq != "none":
+            start_raw = (start_day_input.value or "").strip()
+            if not start_raw:
+                start_day_input.value = today_local().isoformat()
+                self._update_start_day_hint()
+
+        if freq == "weekly":
+            weekly_container.display = True
+            weekly_container.disabled = False
+            monthly_container.display = False
+            monthly_container.disabled = True
+
+            days_input = weekly_container.query_one("#repeat_weekdays", Input)
+            if not (days_input.value or "").strip():
+                start_raw = (start_day_input.value or "").strip()
+                try:
+                    start_date = parse_date_flexible(start_raw, today=today_local()) if start_raw else today_local()
+                except Exception:  # noqa: BLE001
+                    start_date = today_local()
+                day_abbr = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                days_input.value = day_abbr[start_date.weekday()]
+
+        elif freq == "monthly":
+            weekly_container.display = False
+            weekly_container.disabled = True
+            monthly_container.display = True
+            monthly_container.disabled = False
+
+            days_input = monthly_container.query_one("#repeat_monthdays", Input)
+            if not (days_input.value or "").strip():
+                start_raw = (start_day_input.value or "").strip()
+                try:
+                    start_date = parse_date_flexible(start_raw, today=today_local()) if start_raw else today_local()
+                except Exception:  # noqa: BLE001
+                    start_date = today_local()
+                days_input.value = str(start_date.day)
+
+        else:
+            weekly_container.display = False
+            weekly_container.disabled = True
+            monthly_container.display = False
+            monthly_container.disabled = True
+
+    @on(Select.Changed, "#repeat_freq")
+    def _on_repeat_freq_changed(self, event: Select.Changed) -> None:
+        new_freq = str(event.value) if event.value else "none"
+        self._apply_repeat_freq_ui(new_freq)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -435,6 +561,71 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
 
         assert parsed is not None
 
+        # Build repeat dict
+        repeat_freq = str(self.query_one("#repeat_freq", Select).value or "none")
+        repeat_dict: dict[str, Any] | None = None
+        
+        if repeat_freq and repeat_freq != "none":
+            repeat_dict = {"freq": repeat_freq}
+            
+            if repeat_freq == "weekly":
+                weekly_container = self.query_one("#repeat_days_container_weekly", Container)
+                days_input = weekly_container.query_one("#repeat_weekdays", Input)
+                days_text = (days_input.value or "").strip().upper()
+                
+                if not days_text:
+                    days_input.add_class("error")
+                    error.update("[red]• Weekly repeat requires at least one day (e.g., mon, wed, fri)[/red]")
+                    return
+                else:
+                    # Parse day abbreviations: mon, tue, wed, thu, fri, sat, sun
+                    day_mapping = {
+                        "MON": 0, "TUE": 1, "WED": 2, "THU": 3,
+                        "FRI": 4, "SAT": 5, "SUN": 6
+                    }
+                    parts = [p.strip().upper() for p in days_text.split(",")]
+                    weekdays = []
+                    for part in parts:
+                        if part in day_mapping:
+                            weekdays.append(day_mapping[part])
+                        else:
+                            days_input.add_class("error")
+                            error.update(f"[red]• Invalid weekday: {part}. Use mon, tue, wed, thu, fri, sat, sun[/red]")
+                            return
+                    
+                    if weekdays:
+                        repeat_dict["weekdays"] = sorted(set(weekdays))
+                        
+            elif repeat_freq == "monthly":
+                monthly_container = self.query_one("#repeat_days_container_monthly", Container)
+                days_input = monthly_container.query_one("#repeat_monthdays", Input)
+                days_text = (days_input.value or "").strip()
+                
+                if not days_text:
+                    days_input.add_class("error")
+                    error.update("[red]• Monthly repeat requires at least one day (e.g., 1, 15, 30)[/red]")
+                    return
+                else:
+                    # Parse day numbers: 1-31
+                    parts = [p.strip() for p in days_text.split(",")]
+                    monthdays = []
+                    for part in parts:
+                        try:
+                            day_num = int(part)
+                            if 1 <= day_num <= 31:
+                                monthdays.append(day_num)
+                            else:
+                                days_input.add_class("error")
+                                error.update(f"[red]• Day {day_num} must be between 1 and 31[/red]")
+                                return
+                        except ValueError:
+                            days_input.add_class("error")
+                            error.update(f"[red]• Invalid day number: {part}[/red]")
+                            return
+                    
+                    if monthdays:
+                        repeat_dict["monthdays"] = sorted(set(monthdays))
+
         self.dismiss(
             EventFormResult(
                 title=parsed.title,
@@ -445,6 +636,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
                 end_day_offset=parsed.end_day_offset,
                 notify=parsed.notify,
                 notify_minutes_before=parsed.notify_minutes_before,
+                repeat=repeat_dict,
             )
         )
 
@@ -780,6 +972,7 @@ class EventsPane(Container):
             end_day_offset=0,
             notify=True,
             notify_minutes_before=None,
+            repeat=None,
         )
         screen = EventFormScreen(title="New event", initial=initial, prefill_dates=False)
 
@@ -800,6 +993,10 @@ class EventsPane(Container):
                     ),
                     default_notify_minutes_before=0,
                 )
+                # Assign repeat field if provided
+                if result.repeat:
+                    ev.repeat = result.repeat
+                    self._repo.upsert_event(ev)
                 self._refresh()
                 self._notify(f"Evento creado: {ev.title}")
             except Exception as e:  # noqa: BLE001
@@ -821,6 +1018,7 @@ class EventsPane(Container):
             end_day_offset=ev.end_day_offset,
             notify=ev.notify,
             notify_minutes_before=ev.notify_minutes_before,
+            repeat=ev.repeat,
         )
         screen = EventFormScreen(title="Editar evento", initial=initial, prefill_dates=True)
         ev_id = ev.id
@@ -843,6 +1041,9 @@ class EventsPane(Container):
                     ),
                     default_notify_minutes_before=0,
                 )
+                # Update repeat field separately
+                updated.repeat = result.repeat
+                self._repo.upsert_event(updated)
                 self._update_selected_item_in_place(updated)
                 self._notify(f"Evento actualizado: {updated.title}")
             except Exception as e:  # noqa: BLE001

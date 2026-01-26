@@ -4,9 +4,10 @@ import logging
 import webbrowser
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 from uuid import UUID
 
-from textual import events
+from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
@@ -52,6 +53,7 @@ class TaskFormResult:
     due_date: date | None
     link_url: str
     link_text: str
+    repeat: dict[str, Any] | None
 
 
 _STATUS_OPTIONS: list[tuple[str, str]] = [
@@ -60,6 +62,13 @@ _STATUS_OPTIONS: list[tuple[str, str]] = [
     ("postponed", "postponed"),
     ("in_review", "in_review"),
     ("done", "done"),
+]
+
+_REPEAT_FREQ_OPTIONS: list[tuple[str, str]] = [
+    ("None", "none"),
+    ("Daily", "daily"),
+    ("Weekly", "weekly"),
+    ("Monthly", "monthly"),
 ]
 
 
@@ -98,8 +107,34 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
         self._dialog_title = title
         self._initial = initial
         self.add_class("modal")
+        
+        # Extract repeat info
+        self._current_freq = "none"
+        self._current_days_str = ""
+        
+        if initial.repeat and isinstance(initial.repeat, dict):
+            self._current_freq = initial.repeat.get("freq", "none")
+            if self._current_freq == "weekly":
+                weekdays = initial.repeat.get("weekdays", [])
+                if weekdays:
+                    # Convert weekday numbers to abbreviations
+                    day_abbr = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                    self._current_days_str = ", ".join(day_abbr[d] for d in sorted(weekdays))
+            elif self._current_freq == "monthly":
+                monthdays = initial.repeat.get("monthdays", [])
+                if monthdays:
+                    self._current_days_str = ", ".join(str(d) for d in sorted(monthdays))
 
     def compose(self) -> ComposeResult:
+        # Determine initial days string if not set
+        initial_days_str = self._current_days_str
+        if not initial_days_str and self._initial.due_date:
+            if self._current_freq == "weekly":
+                day_abbr = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                initial_days_str = day_abbr[self._initial.due_date.weekday()]
+            elif self._current_freq == "monthly":
+                initial_days_str = str(self._initial.due_date.day)
+        
         yield Container(
             Label(self._dialog_title, id="task_form_title", classes="modal_title"),
             Static(
@@ -109,14 +144,49 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
             ),
             Label("Title *"),
             Input(value=self._initial.title, id="title"),
-            Label("Status"),
-            Select(
-                _STATUS_OPTIONS,
-                value=self._initial.status.value,
-                id="status",
+            Horizontal(
+                Container(
+                    Label("Status"),
+                    Select(
+                        _STATUS_OPTIONS,
+                        value=self._initial.status.value,
+                        id="status",
+                    ),
+                    classes="half_col",
+                ),
+                Checkbox("Priority", value=bool(self._initial.priority), id="priority", classes="no_label_col"),
+                classes="modal_row",
             ),
             Horizontal(
-                Checkbox("Priority", value=bool(self._initial.priority), id="priority"),
+                Container(
+                    Label("Repeat"),
+                    Select(
+                        _REPEAT_FREQ_OPTIONS,
+                        value=self._current_freq,
+                        id="repeat_freq",
+                    ),
+                    classes="half_col",
+                ),
+                Container(
+                    Label("Days (e.g. mon, wed, fri)"),
+                    Input(
+                        value=initial_days_str,
+                        placeholder="mon, tue, wed, thu, fri, sat, sun",
+                        id="repeat_weekdays",
+                    ),
+                    id="repeat_days_container_weekly",
+                    disabled=True,  # Start disabled to prevent rendering issues
+                ),
+                Container(
+                    Label("Days of month (e.g. 1, 15, 30)"),
+                    Input(
+                        value=initial_days_str,
+                        placeholder="1, 15, 30",
+                        id="repeat_monthdays",
+                    ),
+                    id="repeat_days_container_monthly",
+                    disabled=True,  # Start disabled to prevent rendering issues
+                ),
                 classes="modal_row",
             ),
             Label("Due date (optional)"),
@@ -150,6 +220,59 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
         self.query_one("#title", Input).focus()
         self._update_due_date_hint()
 
+        self._apply_repeat_freq_ui(self._current_freq)
+
+    def _apply_repeat_freq_ui(self, freq: str) -> None:
+        weekly_container = self.query_one("#repeat_days_container_weekly", Container)
+        monthly_container = self.query_one("#repeat_days_container_monthly", Container)
+        due_date_input = self.query_one("#due_date", Input)
+
+        freq = (freq or "none").strip() or "none"
+
+        # Mirror list behavior: enabling repetition implies having a base date.
+        if freq != "none":
+            due_raw = (due_date_input.value or "").strip()
+            if not due_raw:
+                due_date_input.value = today_local().isoformat()
+                self._update_due_date_hint()
+
+        if freq == "weekly":
+            weekly_container.display = True
+            weekly_container.disabled = False
+            monthly_container.display = False
+            monthly_container.disabled = True
+
+            days_input = weekly_container.query_one("#repeat_weekdays", Input)
+            if not (days_input.value or "").strip():
+                due_raw = (due_date_input.value or "").strip()
+                try:
+                    due_date = parse_date_flexible(due_raw, today=today_local()) if due_raw else today_local()
+                except Exception:  # noqa: BLE001
+                    due_date = today_local()
+                day_abbr = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                days_input.value = day_abbr[due_date.weekday()]
+
+        elif freq == "monthly":
+            weekly_container.display = False
+            weekly_container.disabled = True
+            monthly_container.display = True
+            monthly_container.disabled = False
+
+            days_input = monthly_container.query_one("#repeat_monthdays", Input)
+            if not (days_input.value or "").strip():
+                due_raw = (due_date_input.value or "").strip()
+                try:
+                    due_date = parse_date_flexible(due_raw, today=today_local()) if due_raw else today_local()
+                except Exception:  # noqa: BLE001
+                    due_date = today_local()
+                days_input.value = str(due_date.day)
+
+        else:
+            weekly_container.display = False
+            weekly_container.disabled = True
+            monthly_container.display = False
+            monthly_container.disabled = True
+
     def action_cancel(self) -> None:
         self.dismiss(None)
 
@@ -162,6 +285,11 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id in {"due_date"}:
             self._update_due_date_hint()
+    
+    @on(Select.Changed, "#repeat_freq")
+    def _on_repeat_freq_changed(self, event: Select.Changed) -> None:
+        new_freq = str(event.value) if event.value else "none"
+        self._apply_repeat_freq_ui(new_freq)
 
     def _set_hint(self, widget: Static, text: str) -> None:
         cleaned = (text or "").strip()
@@ -240,6 +368,67 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
             except ValidationError as e:
                 link_url_input.add_class("error")
                 errors.append(str(e))
+        
+        # Build repeat dict
+        repeat_freq = str(self.query_one("#repeat_freq", Select).value or "none")
+        repeat_dict: dict[str, Any] | None = None
+        
+        if repeat_freq and repeat_freq != "none":
+            repeat_dict = {"freq": repeat_freq}
+            
+            if repeat_freq == "weekly":
+                weekly_container = self.query_one("#repeat_days_container_weekly", Container)
+                days_input = weekly_container.query_one("#repeat_weekdays", Input)
+                days_text = (days_input.value or "").strip().upper()
+                
+                if not days_text:
+                    errors.append("Weekly repeat requires at least one day (e.g., mon, wed, fri)")
+                else:
+                    # Parse day abbreviations: mon, tue, wed, thu, fri, sat, sun
+                    day_mapping = {
+                        "MON": 0, "TUE": 1, "WED": 2, "THU": 3,
+                        "FRI": 4, "SAT": 5, "SUN": 6
+                    }
+                    parts = [p.strip().upper() for p in days_text.split(",")]
+                    weekdays = []
+                    for part in parts:
+                        if part in day_mapping:
+                            weekdays.append(day_mapping[part])
+                        else:
+                            days_input.add_class("error")
+                            errors.append(f"Invalid weekday: {part}. Use mon, tue, wed, thu, fri, sat, sun")
+                            break
+                    
+                    if weekdays and not errors:
+                        repeat_dict["weekdays"] = sorted(set(weekdays))
+                        
+            elif repeat_freq == "monthly":
+                monthly_container = self.query_one("#repeat_days_container_monthly", Container)
+                days_input = monthly_container.query_one("#repeat_monthdays", Input)
+                days_text = (days_input.value or "").strip()
+                
+                if not days_text:
+                    errors.append("Monthly repeat requires at least one day (e.g., 1, 15, 30)")
+                else:
+                    # Parse day numbers: 1-31
+                    parts = [p.strip() for p in days_text.split(",")]
+                    monthdays = []
+                    for part in parts:
+                        try:
+                            day_num = int(part)
+                            if 1 <= day_num <= 31:
+                                monthdays.append(day_num)
+                            else:
+                                days_input.add_class("error")
+                                errors.append(f"Day {day_num} must be between 1 and 31")
+                                break
+                        except ValueError:
+                            days_input.add_class("error")
+                            errors.append(f"Invalid day number: {part}")
+                            break
+                    
+                    if monthdays and not errors:
+                        repeat_dict["monthdays"] = sorted(set(monthdays))
 
         if errors:
             error.update("[red]" + "\n".join(f"• {m}" for m in errors) + "[/red]")
@@ -253,6 +442,7 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
                 due_date=due_date,
                 link_url=link_url,
                 link_text=link_text,
+                repeat=repeat_dict,
             )
         )
 
@@ -626,6 +816,7 @@ class TasksPane(Container):
             due_date=None,
             link_url="",
             link_text="",
+            repeat=None,
         )
         screen = TaskFormScreen(title="New subtask", initial=initial)
         parent_id = parent.id
@@ -647,6 +838,7 @@ class TasksPane(Container):
                         else None,
                     ),
                 )
+                # Note: Subtasks cannot have recurrence, so we don't assign result.repeat
                 self._refresh(keep_id=str(t.id))
                 self._notify("Subtask created")
             except ValidationError as e:
@@ -662,6 +854,7 @@ class TasksPane(Container):
             due_date=None,
             link_url="",
             link_text="",
+            repeat=None,
         )
         screen = TaskFormScreen(title="New task", initial=initial)
 
@@ -681,6 +874,10 @@ class TasksPane(Container):
                         else None,
                     ),
                 )
+                # Assign repeat field if provided
+                if result.repeat:
+                    t.repeat = result.repeat
+                    self._repo.upsert_task(t)
                 self._refresh(keep_id=str(t.id))
                 self._notify("Task created")
             except ValidationError as e:
@@ -700,6 +897,7 @@ class TasksPane(Container):
             due_date=task.due_date,
             link_url=task.link.url if task.link else "",
             link_text=task.link.text or "" if task.link else "",
+            repeat=task.repeat,
         )
         screen = TaskFormScreen(title="Edit task", initial=initial)
 
@@ -720,6 +918,9 @@ class TasksPane(Container):
                         else None,
                     ),
                 )
+                # Update repeat field separately
+                updated.repeat = result.repeat
+                self._repo.upsert_task(updated)
                 self._update_selected_item_in_place(updated)
                 self._notify("Task updated")
             except ValidationError as e:

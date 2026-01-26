@@ -185,6 +185,9 @@ class LogUIApp(App):
         # without requiring a restart.
         self._ui_day: date = datetime.now().date()
         self._poll_counter: int = 0  # Counter for 30-second tasks
+        
+        # Track last rollover date to detect missed rollovers on startup
+        self._state_file = self._data_dir / ".state.json"
 
     def change_data_directory(self, *, new_dir: str, move_files: bool) -> bool:
         """Update bootstrap data dir and copy data/config as requested.
@@ -266,6 +269,8 @@ class LogUIApp(App):
         self._set_active("tasks")
         self._update_header_date()
         self.update_nav_counts()  # Initial update
+        # Check for missed rollovers (app was closed overnight)
+        self._check_missed_rollovers()
         self._start_polling()
 
     def format_title(self, title: str, sub_title: str) -> str:
@@ -371,21 +376,77 @@ class LogUIApp(App):
         self._ui_day = today
         self._update_header_date(now)
         self._day_rollover(today=today)
+        self._save_last_rollover_date(today)
+
+    def _check_missed_rollovers(self) -> None:
+        """Check if we missed any rollovers while the app was closed."""
+        today = self._ui_day
+        last_rollover = self._load_last_rollover_date()
+        
+        # If no previous state, save current date and return
+        if last_rollover is None:
+            self._save_last_rollover_date(today)
+            return
+        
+        # If dates are different, we missed rollover(s)
+        if last_rollover < today:
+            # Execute rollover after a delay to ensure widgets are fully mounted
+            # Using set_timer instead of call_later for better reliability
+            self.set_timer(0.5, lambda: self._execute_missed_rollover(today))
+    
+    def _execute_missed_rollover(self, today: date) -> None:
+        """Execute rollover after widgets are mounted."""
+        self._day_rollover(today=today)
+        self._save_last_rollover_date(today)
+    
+    def _load_last_rollover_date(self) -> date | None:
+        """Load the last rollover date from state file."""
+        try:
+            if not self._state_file.exists():
+                return None
+            
+            import json
+            data = json.loads(self._state_file.read_text())
+            date_str = data.get("last_rollover")
+            if date_str:
+                return date.fromisoformat(date_str)
+        except Exception as e:
+            _log.warning(f"Failed loading last rollover date: {e}")
+        
+        return None
+    
+    def _save_last_rollover_date(self, rollover_date: date) -> None:
+        """Save the last rollover date to state file."""
+        try:
+            import json
+            data = {"last_rollover": rollover_date.isoformat()}
+            self._state_file.write_text(json.dumps(data, indent=2))
+        except Exception as e:
+            _log.warning(f"Failed saving last rollover date: {e}")
 
     def _day_rollover(self, *, today: date) -> None:
         # Best-effort: ask panes to refresh their date-dependent filtering.
         try:
-            self.query_one("#tasks").on_day_rollover(today=today)  # type: ignore[attr-defined]
-        except (NoMatches, TooManyMatches, AttributeError):
-            return
+            from logui.ui.screens.tasks import TasksPane
+            tasks_pane = self.query_one(TasksPane)
+            tasks_pane.on_day_rollover(today=today)
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.warning(f"Could not execute rollover on tasks pane: {e}")
         try:
-            self.query_one("#events").on_day_rollover(today=today)  # type: ignore[attr-defined]
-        except (NoMatches, TooManyMatches, AttributeError):
-            return
+            from logui.ui.screens.events import EventsPane
+            events_pane = self.query_one(EventsPane)
+            events_pane.on_day_rollover(today=today)
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.warning(f"Could not execute rollover on events pane: {e}")
         try:
-            self.query_one("#log").on_day_rollover(today=today)  # type: ignore[attr-defined]
-        except (NoMatches, TooManyMatches, AttributeError):
-            return
+            from logui.ui.screens.log import LogPane
+            log_pane = self.query_one(LogPane)
+            log_pane.on_day_rollover(today=today)
+        except (NoMatches, TooManyMatches, AttributeError) as e:
+            _log.warning(f"Could not execute rollover on log pane: {e}")
+        
+        # Update nav counts after rollover processing
+        self.update_nav_counts()
 
     def _poll_event_notifications(self) -> None:
         now = datetime.now()

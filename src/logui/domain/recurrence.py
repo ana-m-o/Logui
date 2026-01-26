@@ -48,8 +48,21 @@ def occurs_on_date(base_date: date, repeat: dict[str, Any] | None, target: date)
         return delta % interval == 0
     
     elif freq == "weekly":
+        # Check if target falls on one of the specified weekdays
+        weekdays = repeat.get("weekdays")
+        if weekdays and isinstance(weekdays, list):
+            # weekdays is a list of integers (0=Monday, 6=Sunday)
+            target_weekday = target.weekday()
+            if target_weekday not in weekdays:
+                return False
+        else:
+            # If no weekdays specified, use base_date's weekday
+            if target.weekday() != base_date.weekday():
+                return False
+        
+        # Check interval (every N weeks)
         weeks_diff = delta // 7
-        return delta % 7 == 0 and weeks_diff % interval == 0
+        return weeks_diff % interval == 0
     
     elif freq == "monthly":
         # Monthly: same day of month, N months apart
@@ -58,18 +71,37 @@ def occurs_on_date(base_date: date, repeat: dict[str, Any] | None, target: date)
         if months_diff % interval != 0:
             return False
         
-        # Check if target day matches
-        # If base_date.day exists in target month, must match exactly
-        # If base_date.day doesn't exist in target month, target must be last day of month
-        from calendar import monthrange
-        _, last_day_of_target = monthrange(target.year, target.month)
-        
-        if base_date.day <= last_day_of_target:
-            # Day exists in target month, must match exactly
-            return target.day == base_date.day
+        # Check if target day matches any of the specified monthdays
+        monthdays = repeat.get("monthdays")
+        if monthdays and isinstance(monthdays, list):
+            # monthdays is a list of day numbers (1-31)
+            from calendar import monthrange
+            _, last_day_of_target = monthrange(target.year, target.month)
+            
+            # Check if target.day matches any of the specified days
+            for day in monthdays:
+                if day <= last_day_of_target:
+                    if target.day == day:
+                        return True
+                else:
+                    # Day doesn't exist in target month, check if it's last day
+                    if target.day == last_day_of_target:
+                        return True
+            return False
         else:
-            # Day doesn't exist in target month, must be last day
-            return target.day == last_day_of_target
+            # If no monthdays specified, use base_date's day
+            # Check if target day matches
+            # If base_date.day exists in target month, must match exactly
+            # If base_date.day doesn't exist in target month, target must be last day of month
+            from calendar import monthrange
+            _, last_day_of_target = monthrange(target.year, target.month)
+            
+            if base_date.day <= last_day_of_target:
+                # Day exists in target month, must match exactly
+                return target.day == base_date.day
+            else:
+                # Day doesn't exist in target month, must be last day
+                return target.day == last_day_of_target
     
     return False
 
