@@ -81,24 +81,50 @@ class LogPane(Container):
         old_scroll_y = getattr(log_list, "scroll_y", None)
 
         today = today_local()
+        
+        # Check if auto-hide is enabled to determine if we show today's items in log
+        auto_hide_enabled = False
+        try:
+            from logui.domain.ports.config import ConfigRepository
+            config_repo = getattr(self.app, "_config_repo", None)
+            if config_repo and isinstance(config_repo, ConfigRepository):
+                config = config_repo.load()
+                auto_hide_enabled = config.ui.auto_hide_completed
+        except Exception:  # noqa: BLE001
+            pass
 
-        # Obtener eventos ya terminados antes de hoy
+        # Obtener eventos ya terminados (incluyendo hoy solo si auto_hide está activado)
         all_events = list(self._events_repo.list_events())
         past_events: list[Event] = []
         for e in all_events:
             end_day = e.date.fromordinal(e.date.toordinal() + int(e.end_day_offset or 0))
-            if end_day < today:
-                past_events.append(e)
+            if auto_hide_enabled:
+                # Show today's ended events in log when auto_hide is enabled
+                if end_day <= today:
+                    past_events.append(e)
+            else:
+                # Only show past events (not today) when auto_hide is disabled
+                if end_day < today:
+                    past_events.append(e)
 
-        # Obtener tareas completadas (no de hoy)
+        # Obtener tareas completadas (incluyendo hoy solo si auto_hide está activado)
         all_tasks = list(self._tasks_repo.list_tasks())
         # Use the helper to collect ALL completed tasks including subtasks
         all_completed = _collect_all_completed_tasks(all_tasks)
-        completed_tasks = [
-            t
-            for t in all_completed
-            if (t.completed_at or t.updated_at).astimezone().date() < today
-        ]
+        if auto_hide_enabled:
+            # Show today's completed tasks in log when auto_hide is enabled
+            completed_tasks = [
+                t
+                for t in all_completed
+                if (t.completed_at or t.updated_at).astimezone().date() <= today
+            ]
+        else:
+            # Only show past completed tasks (not today) when auto_hide is disabled
+            completed_tasks = [
+                t
+                for t in all_completed
+                if (t.completed_at or t.updated_at).astimezone().date() < today
+            ]
 
         # Agrupar por fecha
         entries_by_date: dict[date, list] = defaultdict(list)

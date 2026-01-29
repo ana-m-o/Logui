@@ -12,8 +12,10 @@ The goal of this application is to learn and explore Textual and terminal-based 
 - **Events:** Schedule with terminal alerts (toast + local sound), flexible times and recurrence (daily/weekly/monthly)
   - Recurring events automatically clone for the next occurrence during day rollover
   - Monthly recurrence handles edge cases (e.g., day 31 becomes last day of month in February)
+- **Log:** Historical view of completed tasks and past events, grouped by date
 - **Journal:** Entries by date with a side history (most recent first) and editor with date change
 - **Files:** Management of `.txt` files with a configurable external editor
+- **Auto-hide completed items:** Optional setting to automatically hide completed tasks and ended events from today (they move to the Log)
 - **100% keyboard:** Navigation and operation fully keyboard-oriented
 
 ## Requirements

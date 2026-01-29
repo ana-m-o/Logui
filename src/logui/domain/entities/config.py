@@ -91,11 +91,25 @@ class NotificationsConfig:
 
 
 @dataclass(frozen=True)
+class UIConfig:
+    auto_hide_completed: bool = False
+
+    @staticmethod
+    def from_dict(data: dict[str, Any] | None) -> "UIConfig":
+        data = data or {}
+        return UIConfig(auto_hide_completed=bool(data.get("auto_hide_completed", False)))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"auto_hide_completed": bool(self.auto_hide_completed)}
+
+
+@dataclass(frozen=True)
 class AppConfig:
     schema_version: int = 1
     editor: EditorConfig = EditorConfig()
     encryption: EncryptionConfig = EncryptionConfig()
     notifications: NotificationsConfig = NotificationsConfig()
+    ui: UIConfig = UIConfig()
     # If None/empty, the app will use its default data directory.
     data_directory: str | None = None
 
@@ -115,6 +129,9 @@ class AppConfig:
         notifications = NotificationsConfig.from_dict(
             data.get("notifications") if isinstance(data.get("notifications"), dict) else None
         )
+        ui = UIConfig.from_dict(
+            data.get("ui") if isinstance(data.get("ui"), dict) else None
+        )
         raw_data_directory = data.get("data_directory")
         data_directory = str(raw_data_directory).strip() if raw_data_directory is not None else ""
         if not data_directory:
@@ -124,6 +141,7 @@ class AppConfig:
             editor=editor,
             encryption=encryption,
             notifications=notifications,
+            ui=ui,
             data_directory=data_directory,
         )
 
@@ -133,6 +151,7 @@ class AppConfig:
             "editor": self.editor.to_dict(),
             "encryption": self.encryption.to_dict(),
             "notifications": self.notifications.to_dict(),
+            "ui": self.ui.to_dict(),
         }
         if self.data_directory:
             doc["data_directory"] = str(self.data_directory)
