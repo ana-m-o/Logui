@@ -87,3 +87,12 @@ def set_theme(*, repo: ConfigRepository, theme_name: str) -> AppConfig:
     updated = replace(current, ui=new_ui)
     repo.save(updated)
     return updated
+
+
+def set_show_journal_in_log(*, repo: ConfigRepository, enabled: bool) -> AppConfig:
+    """Set whether to show journal entries in log."""
+    current = repo.load()
+    new_ui = replace(current.ui, show_journal_in_log=enabled)
+    updated = replace(current, ui=new_ui)
+    repo.save(updated)
+    return updated

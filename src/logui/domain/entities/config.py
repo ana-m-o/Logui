@@ -94,6 +94,7 @@ class NotificationsConfig:
 class UIConfig:
     auto_hide_completed: bool = False
     theme: str | None = None
+    show_journal_in_log: bool = False
 
     @staticmethod
     def from_dict(data: dict[str, Any] | None) -> "UIConfig":
@@ -101,10 +102,14 @@ class UIConfig:
         return UIConfig(
             auto_hide_completed=bool(data.get("auto_hide_completed", False)),
             theme=data.get("theme") if isinstance(data.get("theme"), str) else None,
+            show_journal_in_log=bool(data.get("show_journal_in_log", False)),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        result = {"auto_hide_completed": bool(self.auto_hide_completed)}
+        result = {
+            "auto_hide_completed": bool(self.auto_hide_completed),
+            "show_journal_in_log": bool(self.show_journal_in_log),
+        }
         if self.theme:
             result["theme"] = str(self.theme)
         return result

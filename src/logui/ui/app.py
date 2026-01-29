@@ -258,7 +258,7 @@ class LogUIApp(App):
                     EventsPane(self._events_repo),
                     JournalPane(self._journal_repo),
                     FilesPane(self._files_repo, self._config_repo),
-                    LogPane(self._events_repo, self._tasks_repo),
+                    LogPane(self._events_repo, self._tasks_repo, self._journal_repo),
                     ConfigPane(self._config_repo, data_dir_text=str(self._data_dir)),
                     id="content",
                     initial="tasks",

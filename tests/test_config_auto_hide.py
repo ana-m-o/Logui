@@ -33,10 +33,10 @@ def test_ui_config_from_dict_explicit():
 def test_ui_config_to_dict():
     """UIConfig.to_dict should serialize correctly."""
     ui = UIConfig(auto_hide_completed=True)
-    assert ui.to_dict() == {"auto_hide_completed": True}
+    assert ui.to_dict() == {"auto_hide_completed": True, "show_journal_in_log": False}
     
     ui = UIConfig(auto_hide_completed=False)
-    assert ui.to_dict() == {"auto_hide_completed": False}
+    assert ui.to_dict() == {"auto_hide_completed": False, "show_journal_in_log": False}
 
 
 def test_app_config_includes_ui():

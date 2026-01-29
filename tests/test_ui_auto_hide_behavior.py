@@ -12,6 +12,7 @@ from logui.domain.entities.event import Event
 from logui.domain.entities.task import Task, TaskStatus
 from logui.infrastructure.repositories.config_repo_json import JsonConfigRepository
 from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
+from logui.infrastructure.repositories.journal_repo_json import JsonJournalRepository
 from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
 from logui.ui.screens.events import EventsPane
 from logui.ui.screens.log import LogPane
@@ -26,11 +27,15 @@ class AutoHideTestApp(App[None]):
         self._tasks_repo = tasks_repo
         self._events_repo = events_repo
         self._config_repo = config_repo
+        # Create a dummy journal_repo for LogPane (not used in these tests)
+        import tempfile
+        from pathlib import Path
+        self._journal_repo = JsonJournalRepository(Path(tempfile.gettempdir()) / "dummy_journal.json")
 
     def compose(self) -> ComposeResult:
         yield TasksPane(self._tasks_repo)
         yield EventsPane(self._events_repo)
-        yield LogPane(self._events_repo, self._tasks_repo)
+        yield LogPane(self._events_repo, self._tasks_repo, self._journal_repo)
 
 
 def test_tasks_auto_hide_filters_completed_today(tmp_path) -> None:
