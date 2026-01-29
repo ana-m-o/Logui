@@ -100,15 +100,15 @@ def test_nav_shows_event_count_with_multiple_events(tmp_path) -> None:
     repo = JsonEventRepository(tmp_path / "events.json")
     today = date.today()
 
-    # Use late times to avoid time-based filtering
+    # Use all-day events to avoid time-based filtering issues
     for i in range(3):
         create_event(
             repo,
             CreateEventInput(
                 title=f"Event {i}",
                 day=today,
-                start_time=time(20 + i, 0),  # 20:00, 21:00, 22:00
-                end_time=time(21 + i, 0),  # 21:00, 22:00, 23:00
+                start_time=None,  # All-day event
+                end_time=None,
             ),
         )
 

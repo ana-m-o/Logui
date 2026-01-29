@@ -482,6 +482,7 @@ class TasksPane(Container):
         super().__init__(id="tasks")
         self._repo = repo
         self._rows: list[_TaskRow] = []
+        self._tasks_to_hide: dict[UUID, float] = {}  # task_id -> timestamp when marked DONE
 
     def compose(self) -> ComposeResult:
         yield Container(
@@ -499,6 +500,11 @@ class TasksPane(Container):
 
     def on_mount(self) -> None:
         self._refresh()
+        # Start polling for auto-hide checks
+        try:
+            self.set_interval(15, self._check_auto_hide_tasks)
+        except Exception:  # noqa: BLE001
+            pass
 
     def on_day_rollover(self, *, today: date) -> None:
         selected = self._selected_task()
@@ -531,18 +537,33 @@ class TasksPane(Container):
             rows.extend(_flatten_task_tree(t, depth=0, parent_id=None))
 
         today = today or today_local()
+        
+        # Check if auto-hide is enabled
+        auto_hide_enabled = False
+        try:
+            from logui.domain.ports.config import ConfigRepository
+            config_repo = getattr(self.app, "_config_repo", None)
+            if config_repo and isinstance(config_repo, ConfigRepository):
+                config = config_repo.load()
+                auto_hide_enabled = config.ui.auto_hide_completed
+        except Exception:  # noqa: BLE001
+            pass
+        
         # Filter tasks:
         # - Hide DONE tasks from previous days (keep only completed today)
+        # - If auto_hide_enabled, also hide DONE tasks from today
         # - For tasks with recurrence and due_date, check if they occur on/after today
         filtered_rows: list[_TaskRow] = []
         for row in rows:
             task = row.task
             
-            # Hide DONE tasks from previous days
+            # Hide DONE tasks based on completion date and auto_hide setting
             if task.status == TaskStatus.DONE:
                 completed = task.completed_at or task.updated_at
                 done_day = completed.astimezone().date()
                 if done_day < today:
+                    continue
+                if done_day == today and auto_hide_enabled:
                     continue
             
             # For tasks with recurrence and due_date, check if they're still active
@@ -703,6 +724,66 @@ class TasksPane(Container):
         if idx < 0 or idx >= len(self._rows):
             return None
         return idx
+
+    def _remove_task_from_list(self, task_id: UUID) -> None:
+        """Remove a task from the ListView without refreshing the entire list."""
+        try:
+            lv = self.query_one("#tasks_list", ListView)
+            
+            # Find the index of the task in _rows
+            idx = next((i for i, row in enumerate(self._rows) if row.task.id == task_id), None)
+            if idx is None:
+                return
+            
+            # Remove from internal list
+            self._rows.pop(idx)
+            
+            # Get the ListItem and remove it (like move_child does)
+            items = list(lv.query(ListItem))
+            if idx < len(items):
+                item_to_remove = items[idx]
+                item_to_remove.remove()
+                self._notify("Task archived")
+            
+            # If list is now empty, show the empty message
+            if not self._rows:
+                lv.clear()
+                lv.append(ListItem(Label("(No tasks) — press n to create one")))
+            
+        except Exception:  # noqa: BLE001
+            # Fallback to full refresh if something goes wrong
+            self._refresh()
+
+    def _check_auto_hide_tasks(self) -> None:
+        """Polling method to check and hide tasks that should be removed."""
+        # Check if auto-hide is enabled
+        auto_hide_enabled = False
+        try:
+            from logui.usecases.config import ConfigRepository
+            config_repo = getattr(self.app, "_config_repo", None)
+            if config_repo and isinstance(config_repo, ConfigRepository):
+                config = config_repo.load()
+                auto_hide_enabled = config.ui.auto_hide_completed
+        except Exception:  # noqa: BLE001
+            pass
+        
+        if not auto_hide_enabled:
+            self._tasks_to_hide.clear()
+            return
+        
+        # Check tasks that need to be hidden
+        import time
+        now = time.time()
+        tasks_to_remove = []
+        
+        for task_id, marked_time in list(self._tasks_to_hide.items()):
+            if now - marked_time >= 5.0:
+                tasks_to_remove.append(task_id)
+        
+        # Remove tasks
+        for task_id in tasks_to_remove:
+            self._remove_task_from_list(task_id)
+            self._tasks_to_hide.pop(task_id, None)
 
     def _update_selected_item_in_place(self, updated: Task, *, focus: bool = True) -> None:
         idx = self._selected_index()
@@ -958,7 +1039,21 @@ class TasksPane(Container):
                 and task.repeat.get("freq") != "none"
             )
             
+            # Check if task is being marked as DONE
+            will_be_done = task.status != TaskStatus.DONE
+            
             updated = cycle_task_status(self._repo, task.id)
+            
+            # Check if auto-hide is enabled
+            auto_hide_enabled = False
+            try:
+                from logui.usecases.config import ConfigRepository
+                config_repo = getattr(self.app, "_config_repo", None)
+                if config_repo and isinstance(config_repo, ConfigRepository):
+                    config = config_repo.load()
+                    auto_hide_enabled = config.ui.auto_hide_completed
+            except Exception:  # noqa: BLE001
+                pass
             
             # If marked as DONE and it was recurring, refresh the whole list
             # (a new task may have been cloned)
@@ -967,7 +1062,15 @@ class TasksPane(Container):
             else:
                 self._update_selected_item_in_place(updated)
             
-            self._notify(f"Task status: {self._status_label(updated.status)}")
+            # If marked as DONE and auto-hide is enabled, schedule removal
+            if updated.status == TaskStatus.DONE and will_be_done and auto_hide_enabled:
+                task_id = updated.id
+                # Record timestamp for polling-based removal
+                import time
+                self._tasks_to_hide[task_id] = time.time()
+                self._notify(f"Task status: {self._status_label(updated.status)} (will archive in a few seconds)")
+            else:
+                self._notify(f"Task status: {self._status_label(updated.status)}")
         except ValidationError as e:
             self._notify(f"Error: {e}")
 

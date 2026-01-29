@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from textual import events, on
@@ -656,6 +656,8 @@ class EventsPane(Container):
         super().__init__(id="events")
         self._repo = repo
         self._events: list[Event] = []
+        self._events_to_hide: dict[UUID, float] = {}  # event_id -> timestamp when ended
+        self._auto_hide_timer: Any = None
 
     def compose(self) -> ComposeResult:
         yield Container(
@@ -710,6 +712,89 @@ class EventsPane(Container):
             except (NoMatches, TooManyMatches, AttributeError):
                 continue
             self._apply_temporal_classes(row, ev, now=now)
+        
+        # Check if any events should be auto-hidden
+        self._check_and_schedule_auto_hide(now)
+
+    def _check_and_schedule_auto_hide(self, now: datetime) -> None:
+        """Check if any events have ended and should be auto-hidden."""
+        # Check if auto-hide is enabled
+        auto_hide_enabled = False
+        try:
+            from logui.usecases.config import ConfigRepository
+            config_repo = getattr(self.app, "_config_repo", None)
+            if config_repo and isinstance(config_repo, ConfigRepository):
+                config = config_repo.load()
+                auto_hide_enabled = config.ui.auto_hide_completed
+        except Exception:  # noqa: BLE001
+            pass
+        
+        if not auto_hide_enabled:
+            self._events_to_hide.clear()
+            return
+        
+        # Find events that just ended and mark them for hiding
+        import time
+        current_time = time.time()
+        
+        for ev in self._events:
+            if ev.start_time is None:
+                continue  # All-day events don't auto-hide
+            
+            # Skip if already scheduled
+            if ev.id in self._events_to_hide:
+                continue
+            
+            # Calculate end datetime
+            from datetime import timedelta
+            start_dt = datetime.combine(ev.date, ev.start_time)
+            if ev.end_time is None:
+                end_dt = start_dt + timedelta(hours=1)
+            else:
+                end_dt = datetime.combine(ev.date, ev.end_time) + timedelta(days=int(ev.end_day_offset or 0))
+            
+            # If event just ended, schedule for removal
+            if end_dt <= now:
+                self._events_to_hide[ev.id] = current_time
+        
+        # Remove events that have been scheduled for 5+ seconds
+        events_to_remove = []
+        for event_id, marked_time in list(self._events_to_hide.items()):
+            if current_time - marked_time >= 5.0:
+                events_to_remove.append(event_id)
+        
+        for event_id in events_to_remove:
+            self._remove_event_from_list(event_id)
+            self._events_to_hide.pop(event_id, None)
+
+    def _remove_event_from_list(self, event_id: UUID) -> None:
+        """Remove an event from the ListView without refreshing the entire list."""
+        try:
+            lv = self.query_one("#events_list", ListView)
+            
+            # Find the index of the event in _events
+            idx = next((i for i, ev in enumerate(self._events) if ev.id == event_id), None)
+            if idx is None:
+                return
+            
+            # Remove from internal list
+            self._events.pop(idx)
+            
+            # Get the ListItem and remove it (like move_child does)
+            items = list(lv.query(ListItem))
+            if idx < len(items):
+                item_to_remove = items[idx]
+                item_to_remove.remove()
+                self._notify("Event archived")
+            
+            # If list is now empty, show the empty message
+            if not self._events:
+                lv.clear()
+                lv.append(ListItem(Label("(No events) — press n to create")))
+            
+        except Exception:  # noqa: BLE001
+            # Fallback to full refresh if something goes wrong
+            self._refresh()
 
     def on_click(self, event: events.Click) -> None:
         if event.chain < 2 or event.button != 1:
@@ -752,6 +837,40 @@ class EventsPane(Container):
         self._events = [
             ev for ev in self._repo.list_events() if is_visible_in_events_pane(ev, today=today)
         ]
+        
+        # Check if auto-hide is enabled
+        auto_hide_enabled = False
+        try:
+            from logui.domain.ports.config import ConfigRepository
+            config_repo = getattr(self.app, "_config_repo", None)
+            if config_repo and isinstance(config_repo, ConfigRepository):
+                config = config_repo.load()
+                auto_hide_enabled = config.ui.auto_hide_completed
+        except Exception:  # noqa: BLE001
+            pass
+        
+        # Filter out ended events from today if auto_hide is enabled
+        if auto_hide_enabled:
+            filtered_events: list[Event] = []
+            for ev in self._events:
+                end_day = ev.date.fromordinal(ev.date.toordinal() + int(ev.end_day_offset or 0))
+                # Hide events that ended today (end_day == today and already passed)
+                if end_day == today:
+                    # Check if the event has actually ended (time-wise)
+                    if ev.start_time is None:
+                        # All-day event ends at end of day
+                        end_dt = datetime.combine(today, time(23, 59, 59))
+                    elif ev.end_time is None:
+                        # No end time, assume 1 hour duration
+                        end_dt = datetime.combine(ev.date, ev.start_time) + timedelta(hours=1)
+                    else:
+                        end_dt = datetime.combine(ev.date, ev.end_time) + timedelta(days=int(ev.end_day_offset or 0))
+                    
+                    if now >= end_dt:
+                        continue  # Skip this ended event
+                
+                filtered_events.append(ev)
+            self._events = filtered_events
 
         self._events.sort(key=event_list_sort_key)
 

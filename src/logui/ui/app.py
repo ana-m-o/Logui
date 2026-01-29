@@ -258,7 +258,7 @@ class LogUIApp(App):
                     EventsPane(self._events_repo),
                     JournalPane(self._journal_repo),
                     FilesPane(self._files_repo, self._config_repo),
-                    LogPane(self._events_repo, self._tasks_repo),
+                    LogPane(self._events_repo, self._tasks_repo, self._journal_repo),
                     ConfigPane(self._config_repo, data_dir_text=str(self._data_dir)),
                     id="content",
                     initial="tasks",
@@ -268,6 +268,22 @@ class LogUIApp(App):
     def on_mount(self) -> None:
         self._set_active("tasks")
         self._update_header_date()
+        
+        # Load and apply saved theme
+        config = self._config_repo.load()
+        if config.ui.theme:
+            try:
+                self.theme = config.ui.theme
+            except Exception as e:  # noqa: BLE001
+                _log.debug("Failed to apply saved theme %s: %s", config.ui.theme, e)
+    
+    def watch_theme(self, theme_name: str) -> None:
+        """Watch theme changes and persist them to config."""
+        from logui.usecases.config import set_theme
+        try:
+            set_theme(repo=self._config_repo, theme_name=theme_name)
+        except Exception as e:  # noqa: BLE001
+            _log.debug("Failed to persist theme %s: %s", theme_name, e)
         self.update_nav_counts()  # Initial update
         # Check for missed rollovers (app was closed overnight)
         self._check_missed_rollovers()

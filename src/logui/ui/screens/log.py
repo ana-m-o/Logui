@@ -7,12 +7,14 @@ from datetime import date, datetime
 import logging
 
 from textual.app import ComposeResult
-from textual.containers import Container, ScrollableContainer
-from textual.widgets import Label, ListItem, ListView, Static
+from textual.containers import Container, Horizontal, ScrollableContainer
+from textual.reactive import reactive
+from textual.widgets import Checkbox, Label, ListItem, ListView, Static
 
 from logui.domain.entities.event import Event
 from logui.domain.entities.task import Task, TaskStatus
 from logui.domain.ports.events import EventRepository
+from logui.domain.ports.journal import JournalRepository
 from logui.domain.ports.tasks import TaskRepository
 from logui.ui.dates import fmt_day_compact_friendly, fmt_day_full_friendly
 from logui.ui.parsing import today_local
@@ -50,21 +52,46 @@ def _collect_all_completed_tasks(tasks: list[Task]) -> list[Task]:
 class LogPane(Container):
     """Panel de Log con historial de eventos y tareas completadas."""
 
-    def __init__(self, events_repo: EventRepository, tasks_repo: TaskRepository):
+    show_journal = reactive(False)
+
+    def __init__(self, events_repo: EventRepository, tasks_repo: TaskRepository, journal_repo: JournalRepository):
         super().__init__(id="log")
         self._events_repo = events_repo
         self._tasks_repo = tasks_repo
+        self._journal_repo = journal_repo
         self._last_rendered_groups: list[str] | None = None
 
     def compose(self) -> ComposeResult:
         """Componer widgets del log."""
-        yield ScrollableContainer(
-            Label("Log", id="log_title"),
+        yield Container(
+            Horizontal(
+                Label("Log"),
+                classes="page_header",
+            ),
+            Horizontal(
+                Checkbox("Show journal entries", id="log_show_journal"),
+                classes="log_toolbar",
+            ),
             ListView(id="log_list"),
         )
 
     def on_mount(self) -> None:
         """Cargar log al montar."""
+        # Load saved show_journal preference
+        try:
+            from logui.domain.ports.config import ConfigRepository
+            config_repo = getattr(self.app, "_config_repo", None)
+            if config_repo and isinstance(config_repo, ConfigRepository):
+                config = config_repo.load()
+                self.show_journal = config.ui.show_journal_in_log
+                # Update checkbox to match saved state
+                try:
+                    checkbox = self.query_one("#log_show_journal", Checkbox)
+                    checkbox.value = self.show_journal
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
         self._load_log()
 
     def refresh_log(self) -> None:
@@ -74,6 +101,21 @@ class LogPane(Container):
     def on_day_rollover(self, *, today: date) -> None:  # noqa: ARG002
         self._load_log()
 
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        """Handle checkbox change."""
+        if event.checkbox.id == "log_show_journal":
+            self.show_journal = event.value
+            # Save preference
+            try:
+                from logui.domain.ports.config import ConfigRepository
+                from logui.usecases.config import set_show_journal_in_log
+                config_repo = getattr(self.app, "_config_repo", None)
+                if config_repo and isinstance(config_repo, ConfigRepository):
+                    set_show_journal_in_log(repo=config_repo, enabled=event.value)
+            except Exception as e:  # noqa: BLE001
+                _log.warning("Failed saving show_journal preference: %s", e)
+            self._load_log()
+
     def _load_log(self) -> None:
         """Cargar y mostrar el log agrupado por fecha."""
         log_list = self.query_one("#log_list", ListView)
@@ -81,24 +123,50 @@ class LogPane(Container):
         old_scroll_y = getattr(log_list, "scroll_y", None)
 
         today = today_local()
+        
+        # Check if auto-hide is enabled to determine if we show today's items in log
+        auto_hide_enabled = False
+        try:
+            from logui.domain.ports.config import ConfigRepository
+            config_repo = getattr(self.app, "_config_repo", None)
+            if config_repo and isinstance(config_repo, ConfigRepository):
+                config = config_repo.load()
+                auto_hide_enabled = config.ui.auto_hide_completed
+        except Exception:  # noqa: BLE001
+            pass
 
-        # Obtener eventos ya terminados antes de hoy
+        # Obtener eventos ya terminados (incluyendo hoy solo si auto_hide está activado)
         all_events = list(self._events_repo.list_events())
         past_events: list[Event] = []
         for e in all_events:
             end_day = e.date.fromordinal(e.date.toordinal() + int(e.end_day_offset or 0))
-            if end_day < today:
-                past_events.append(e)
+            if auto_hide_enabled:
+                # Show today's ended events in log when auto_hide is enabled
+                if end_day <= today:
+                    past_events.append(e)
+            else:
+                # Only show past events (not today) when auto_hide is disabled
+                if end_day < today:
+                    past_events.append(e)
 
-        # Obtener tareas completadas (no de hoy)
+        # Obtener tareas completadas (incluyendo hoy solo si auto_hide está activado)
         all_tasks = list(self._tasks_repo.list_tasks())
         # Use the helper to collect ALL completed tasks including subtasks
         all_completed = _collect_all_completed_tasks(all_tasks)
-        completed_tasks = [
-            t
-            for t in all_completed
-            if (t.completed_at or t.updated_at).astimezone().date() < today
-        ]
+        if auto_hide_enabled:
+            # Show today's completed tasks in log when auto_hide is enabled
+            completed_tasks = [
+                t
+                for t in all_completed
+                if (t.completed_at or t.updated_at).astimezone().date() <= today
+            ]
+        else:
+            # Only show past completed tasks (not today) when auto_hide is disabled
+            completed_tasks = [
+                t
+                for t in all_completed
+                if (t.completed_at or t.updated_at).astimezone().date() < today
+            ]
 
         # Agrupar por fecha
         entries_by_date: dict[date, list] = defaultdict(list)
@@ -109,6 +177,19 @@ class LogPane(Container):
         for task in completed_tasks:
             completion_date = (task.completed_at or task.updated_at).astimezone().date()
             entries_by_date[completion_date].append(("task", task))
+
+        # Añadir entradas del journal si la opción está habilitada
+        if self.show_journal:
+            try:
+                journal_days = self._journal_repo.list_entry_days()
+                for day in journal_days:
+                    # Solo mostrar días que ya están en el log o son del pasado
+                    if day < today or day in entries_by_date:
+                        entry_text = self._journal_repo.get_entry(day)
+                        if entry_text and entry_text.strip():
+                            entries_by_date[day].append(("journal", entry_text))
+            except Exception as e:  # noqa: BLE001
+                _log.warning("Failed loading journal entries: %s", e)
 
         # Build render snapshot (to avoid flicker if nothing changes)
         rendered_groups: list[str] = []
@@ -128,8 +209,10 @@ class LogPane(Container):
                 for entry_type, entry in sorted_entries:
                     if entry_type == "event":
                         lines.append(self._format_event_entry(entry))
-                    else:  # task
+                    elif entry_type == "task":
                         lines.append(self._format_task_entry(entry))
+                    elif entry_type == "journal":
+                        lines.append(self._format_journal_entry(entry))
 
                 rendered_groups.append("\n".join(lines))
 
@@ -163,7 +246,7 @@ class LogPane(Container):
         except Exception as e:  # noqa: BLE001
             _log.debug("Failed restoring log selection/scroll: %s", e)
 
-    def _get_entry_sort_key(self, entry: tuple[str, Event | Task]) -> tuple:
+    def _get_entry_sort_key(self, entry: tuple[str, Event | Task | str]) -> tuple:
         """Get sort key for an entry."""
         entry_type, item = entry
 
@@ -173,9 +256,11 @@ class LogPane(Container):
                 return (0, item.start_time)
             else:
                 return (1, datetime.min.time())
-        else:  # task
+        elif entry_type == "task":
             # Sort tasks by update time
             return (0, item.updated_at.time())
+        else:  # journal - always at the end of the day
+            return (2, datetime.max.time())
 
     def _format_event_entry(self, event: Event) -> str:
         """Format event entry with indentation."""
@@ -264,3 +349,13 @@ class LogPane(Container):
             parts.append(subtasks_text)
 
         return "\n".join(parts)
+
+    def _format_journal_entry(self, text: str) -> str:
+        """Format journal entry with indentation."""
+        # Show first line or truncated preview
+        lines = text.split("\n")
+        preview = lines[0] if lines else ""
+        if len(preview) > 80:
+            preview = preview[:77] + "..."
+        
+        return f"  [dim italic]📓 {_escape_rich(preview)}[/dim italic]"

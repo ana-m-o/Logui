@@ -8,6 +8,7 @@ from logui.domain.entities.config import (
     AppConfig,
     EditorConfig,
     NotificationsConfig,
+    UIConfig,
 )
 from logui.domain.ports.config import ConfigRepository
 
@@ -66,5 +67,32 @@ def set_default_notify_minutes_before(*, repo: ConfigRepository, minutes: int) -
 
     new_notifications = replace(current.notifications, default_minutes_before=mins)
     updated = replace(current, notifications=new_notifications)
+    repo.save(updated)
+    return updated
+
+
+def toggle_auto_hide_completed(*, repo: ConfigRepository) -> AppConfig:
+    """Toggle the auto-hide completed items setting."""
+    current = repo.load()
+    new_ui = replace(current.ui, auto_hide_completed=not current.ui.auto_hide_completed)
+    updated = replace(current, ui=new_ui)
+    repo.save(updated)
+    return updated
+
+
+def set_theme(*, repo: ConfigRepository, theme_name: str) -> AppConfig:
+    """Set the theme in configuration."""
+    current = repo.load()
+    new_ui = replace(current.ui, theme=theme_name)
+    updated = replace(current, ui=new_ui)
+    repo.save(updated)
+    return updated
+
+
+def set_show_journal_in_log(*, repo: ConfigRepository, enabled: bool) -> AppConfig:
+    """Set whether to show journal entries in log."""
+    current = repo.load()
+    new_ui = replace(current.ui, show_journal_in_log=enabled)
+    updated = replace(current, ui=new_ui)
     repo.save(updated)
     return updated

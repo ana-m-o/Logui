@@ -253,6 +253,7 @@ class ConfigPane(Container):
         args_text = " ".join(args) if args else "(no args)"
         all_day = (self._config.notifications.all_day_notify_time or "09:00").strip() or "09:00"
         default_mins = int(self._config.notifications.default_minutes_before)
+        auto_hide = "Yes" if self._config.ui.auto_hide_completed else "No"
         data_dir = self._data_dir_text
 
         try:
@@ -273,6 +274,13 @@ class ConfigPane(Container):
                 key="default_notify_minutes",
                 title="Default notify minutes",
                 value=str(default_mins),
+            )
+        )
+        lv.append(
+            _ConfigRow(
+                key="auto_hide_completed",
+                title="Auto-hide completed items",
+                value=auto_hide,
             )
         )
 
@@ -458,3 +466,48 @@ class ConfigPane(Container):
                 callback=_on_done,
             )
             return
+
+        if key == "auto_hide_completed":
+            current = self._config.ui.auto_hide_completed
+            new_value = not current
+
+            # Update config directly
+            from logui.usecases.config import toggle_auto_hide_completed
+            toggle_auto_hide_completed(repo=self._repo)
+            
+            status = "enabled" if new_value else "disabled"
+            self._notify(f"Auto-hide completed items {status}")
+            self.call_later(self._refresh)
+            
+            # Trigger refresh in all panes (to show/hide items based on new setting)
+            self.call_later(self._trigger_auto_hide_refresh)
+            return
+
+    def _trigger_auto_hide_refresh(self) -> None:
+        """Refresh all panes when auto-hide setting changes."""
+        # Refresh tasks pane
+        try:
+            from logui.ui.screens.tasks import TasksPane
+            tasks_pane = self.app.query_one(TasksPane)
+            if tasks_pane:
+                tasks_pane._refresh()
+        except Exception:  # noqa: BLE001
+            pass
+        
+        # Refresh events pane
+        try:
+            from logui.ui.screens.events import EventsPane
+            events_pane = self.app.query_one(EventsPane)
+            if events_pane:
+                events_pane._refresh()
+        except Exception:  # noqa: BLE001
+            pass
+        
+        # Refresh log pane
+        try:
+            from logui.ui.screens.log import LogPane
+            log_pane = self.app.query_one(LogPane)
+            if log_pane:
+                log_pane._load_log()
+        except Exception:  # noqa: BLE001
+            pass
