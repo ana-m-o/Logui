@@ -78,3 +78,12 @@ def toggle_auto_hide_completed(*, repo: ConfigRepository) -> AppConfig:
     updated = replace(current, ui=new_ui)
     repo.save(updated)
     return updated
+
+
+def set_theme(*, repo: ConfigRepository, theme_name: str) -> AppConfig:
+    """Set the theme in configuration."""
+    current = repo.load()
+    new_ui = replace(current.ui, theme=theme_name)
+    updated = replace(current, ui=new_ui)
+    repo.save(updated)
+    return updated

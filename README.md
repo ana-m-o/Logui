@@ -16,6 +16,7 @@ The goal of this application is to learn and explore Textual and terminal-based 
 - **Journal:** Entries by date with a side history (most recent first) and editor with date change
 - **Files:** Management of `.txt` files with a configurable external editor
 - **Auto-hide completed items:** Optional setting to automatically hide completed tasks and ended events from today (they move to the Log)
+- **Persistent theme:** The app remembers your theme preference when you change it via the command palette (Ctrl+P)
 - **100% keyboard:** Navigation and operation fully keyboard-oriented
 
 ## Requirements

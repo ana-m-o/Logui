@@ -93,14 +93,21 @@ class NotificationsConfig:
 @dataclass(frozen=True)
 class UIConfig:
     auto_hide_completed: bool = False
+    theme: str | None = None
 
     @staticmethod
     def from_dict(data: dict[str, Any] | None) -> "UIConfig":
         data = data or {}
-        return UIConfig(auto_hide_completed=bool(data.get("auto_hide_completed", False)))
+        return UIConfig(
+            auto_hide_completed=bool(data.get("auto_hide_completed", False)),
+            theme=data.get("theme") if isinstance(data.get("theme"), str) else None,
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return {"auto_hide_completed": bool(self.auto_hide_completed)}
+        result = {"auto_hide_completed": bool(self.auto_hide_completed)}
+        if self.theme:
+            result["theme"] = str(self.theme)
+        return result
 
 
 @dataclass(frozen=True)
