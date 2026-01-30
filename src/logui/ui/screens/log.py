@@ -93,6 +93,16 @@ class LogPane(Container):
         except Exception:  # noqa: BLE001
             pass
         self._load_log()
+        try:
+            log_list = self.query_one("#log_list", ListView)
+            log_list.can_focus = True
+            log_list.focus()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self.query_one("#log_list", ListView).focus()
+        except Exception:  # noqa: BLE001
+            pass
 
     def refresh_log(self) -> None:
         """Public refresh hook for the app-level polling loop."""
@@ -119,6 +129,7 @@ class LogPane(Container):
     def _load_log(self) -> None:
         """Cargar y mostrar el log agrupado por fecha."""
         log_list = self.query_one("#log_list", ListView)
+        had_focus = log_list.has_focus
         old_index = log_list.index or 0
         old_scroll_y = getattr(log_list, "scroll_y", None)
 
@@ -225,7 +236,7 @@ class LogPane(Container):
         log_list.clear()
         if not sorted_dates:
             log_list.append(
-                ListItem(Static(rendered_groups[0]), classes="log_empty", disabled=True)
+                ListItem(Static(rendered_groups[0]), classes="log_empty")
             )
         else:
             for group_text in rendered_groups:
@@ -233,7 +244,6 @@ class LogPane(Container):
                     ListItem(
                         Static(group_text),
                         classes="log_day_group",
-                        disabled=True,
                     )
                 )
 
@@ -245,6 +255,11 @@ class LogPane(Container):
                 log_list.scroll_y = old_scroll_y
         except Exception as e:  # noqa: BLE001
             _log.debug("Failed restoring log selection/scroll: %s", e)
+        if had_focus:
+            try:
+                log_list.focus()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _get_entry_sort_key(self, entry: tuple[str, Event | Task | str]) -> tuple:
         """Get sort key for an entry."""

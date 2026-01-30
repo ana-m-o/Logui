@@ -875,13 +875,14 @@ class EventsPane(Container):
         self._events.sort(key=event_list_sort_key)
 
         lv = self.query_one("#events_list", ListView)
+        had_focus = lv.has_focus
         old_index = lv.index or 0
         old_scroll_y = getattr(lv, "scroll_y", None) if keep_scroll else None
         lv.clear()
 
         if not self._events:
             lv.append(ListItem(Label("(No events) — press n to create")))
-            if focus:
+            if focus or had_focus:
                 lv.focus()
             return
 
@@ -897,13 +898,14 @@ class EventsPane(Container):
         else:
             selected_idx = max(0, min(old_index, len(self._events) - 1))
 
+        lv.index = None
         lv.index = selected_idx
         if old_scroll_y is not None:
             try:
                 lv.scroll_y = old_scroll_y
             except Exception as e:  # noqa: BLE001
                 _log.debug("Failed restoring events scroll position: %s", e)
-        if focus:
+        if focus or had_focus:
             lv.focus()
         
         # Update event count in sidebar
