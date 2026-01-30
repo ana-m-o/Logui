@@ -525,6 +525,7 @@ class TasksPane(Container):
         today: date | None = None,
     ) -> None:
         lv = self.query_one("#tasks_list", ListView)
+        had_focus = lv.has_focus
         old_scroll_y: int | None = None
         if keep_scroll:
             old_scroll_y = getattr(lv, "scroll_y", None)
@@ -594,6 +595,8 @@ class TasksPane(Container):
 
         if not self._rows:
             lv.append(ListItem(Label("(No tasks) — press n to create one")))
+            if focus or had_focus:
+                lv.focus()
             return
 
         selected_idx = 0
@@ -606,6 +609,7 @@ class TasksPane(Container):
         for row in self._rows:
             lv.append(self._build_list_item(row))
 
+        lv.index = None
         lv.index = selected_idx
         if old_scroll_y is not None:
             try:
@@ -613,7 +617,7 @@ class TasksPane(Container):
             except Exception as e:  # noqa: BLE001
                 _log.debug("Failed restoring tasks scroll position: %s", e)
 
-        if focus:
+        if focus or had_focus:
             lv.focus()
 
     def _status_tag(self, status: TaskStatus) -> str:

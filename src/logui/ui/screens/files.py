@@ -304,12 +304,13 @@ class FilesPane(Container):
                 return
 
             self._notify("Archivo renombrado")
-            self._refresh(keep=new_name)
+            self._refresh(keep=new_name, focus_list=True)
 
         self.app.push_screen(screen, callback=_on_done)
 
-    def _refresh(self, *, keep: str | None = None) -> None:
+    def _refresh(self, *, keep: str | None = None, focus_list: bool = False) -> None:
         lv = self.query_one("#files_list", ListView)
+        had_focus = lv.has_focus
 
         keep_name = keep or self._selected_filename()
         old_index = lv.index if lv.index is not None else 0
@@ -322,11 +323,14 @@ class FilesPane(Container):
 
         def _set_selection() -> None:
             if not new_filenames:
+                lv.index = None
                 lv.index = 0
                 return
             if keep_name and keep_name in new_filenames:
+                lv.index = None
                 lv.index = new_filenames.index(keep_name)
             else:
+                lv.index = None
                 lv.index = min(max(old_index, 0), len(new_filenames) - 1)
 
         def _rebuild() -> None:
@@ -407,6 +411,11 @@ class FilesPane(Container):
 
         self._filenames = new_filenames
         _set_selection()
+        if focus_list or had_focus:
+            try:
+                lv.focus()
+            except Exception:  # noqa: BLE001
+                pass
 
     def on_click(self, event: events.Click) -> None:
         if event.chain < 2 or event.button != 1:
@@ -446,7 +455,7 @@ class FilesPane(Container):
                 return
 
             self._notify("Archivo creado")
-            self._refresh(keep=created)
+            self._refresh(keep=created, focus_list=True)
 
         self.app.push_screen(screen, callback=_on_done)
 
@@ -465,7 +474,7 @@ class FilesPane(Container):
                 return
             if deleted:
                 self._notify("Archivo borrado")
-            self._refresh()
+            self._refresh(focus_list=True)
 
         self.app.push_screen(ConfirmScreen(f"¿Borrar {filename}?"), callback=_on_confirm)
 
