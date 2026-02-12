@@ -322,3 +322,113 @@ def test_all_day_events_never_filtered_by_auto_hide(tmp_path) -> None:
             assert events_pane._events[0].title == "All day event"
 
     asyncio.run(_run())
+
+
+def test_task_not_archived_if_reopened_before_auto_hide_timeout(tmp_path) -> None:
+    """If a task is marked DONE then returned to TODO before the auto-hide timeout,
+    it must not be archived."""
+    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
+    events_repo = JsonEventRepository(tmp_path / "events.json")
+    config_repo = JsonConfigRepository(tmp_path / "config.json")
+
+    # Create a task that is one step before DONE so a single cycle reaches DONE
+    task = Task.create(title="Flaky task", status=TaskStatus.IN_REVIEW)
+    tasks_repo.upsert_task(task)
+
+    async def _run() -> None:
+        # Enable auto-hide
+        config = AppConfig(ui=UIConfig(auto_hide_completed=True))
+        config_repo.save(config)
+
+        app = AutoHideTestApp(tasks_repo, events_repo, config_repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            tasks_pane = app.query_one(TasksPane)
+            lv = tasks_pane.query_one("#tasks_list")
+
+            # Select the only task
+            lv.index = 0
+
+            # Mark as DONE (schedules hide)
+            tasks_pane.action_cycle_status()
+
+            # Immediately mark back to next status (DONE -> TODO)
+            tasks_pane.action_cycle_status()
+
+            # Force the recorded timestamp to be older than the threshold to simulate time passing
+            import time
+            for k in list(tasks_pane._tasks_to_hide.keys()):
+                tasks_pane._tasks_to_hide[k] = time.time() - 10.0
+
+            # Run the auto-hide check
+            tasks_pane._check_auto_hide_tasks()
+
+            # The task must still be present and not archived
+            assert len(tasks_pane._rows) == 1
+            assert tasks_pane._rows[0].task.status == TaskStatus.TODO
+
+    asyncio.run(_run())
+
+
+def test_archived_tasks_appear_in_log(tmp_path) -> None:
+    """Tasks that are auto-hidden from the tasks list should still appear in the Log."""
+    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
+    events_repo = JsonEventRepository(tmp_path / "events.json")
+    config_repo = JsonConfigRepository(tmp_path / "config.json")
+
+    # Create a task one step before DONE so a single cycle reaches DONE
+    task = Task.create(title="To be archived", status=TaskStatus.IN_REVIEW)
+    tasks_repo.upsert_task(task)
+
+    async def _run() -> None:
+        # Enable auto-hide
+        config = AppConfig(ui=UIConfig(auto_hide_completed=True))
+        config_repo.save(config)
+
+        app = AutoHideTestApp(tasks_repo, events_repo, config_repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            tasks_pane = app.query_one(TasksPane)
+            lv = tasks_pane.query_one("#tasks_list")
+
+            # Select the task and mark as DONE
+            lv.index = 0
+            tasks_pane.action_cycle_status()
+
+            # Ensure repository recorded the task as DONE
+            repo_task = tasks_repo.get_task(task.id)
+            assert repo_task is not None
+            assert repo_task.status == TaskStatus.DONE
+
+            # Force the recorded timestamp to be older than the threshold to simulate time passing
+            import time
+            for k in list(tasks_pane._tasks_to_hide.keys()):
+                tasks_pane._tasks_to_hide[k] = time.time() - 10.0
+
+            # Run the auto-hide check (removes from tasks list UI)
+            tasks_pane._check_auto_hide_tasks()
+
+            # Repository should still have the completed task
+            repo_task_after = tasks_repo.get_task(task.id)
+            assert repo_task_after is not None
+            assert repo_task_after.status == TaskStatus.DONE
+
+            # Now load the log and ensure the completed task is present
+            log_pane = app.query_one(LogsPane) if False else app.query_one("#log")
+            # Prefer the actual LogPane instance
+            from logui.ui.screens.log import LogPane
+            log_pane = app.query_one(LogPane)
+            log_pane._load_log()
+
+            # The log should include the completed task title in its rendered groups
+            found = False
+            if log_pane._last_rendered_groups:
+                for g in log_pane._last_rendered_groups:
+                    if "To be archived" in g:
+                        found = True
+                        break
+            assert found, "Archived task not found in Log"
+
+    asyncio.run(_run())

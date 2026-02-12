@@ -748,6 +748,23 @@ class TasksPane(Container):
                 item_to_remove = items[idx]
                 item_to_remove.remove()
                 self._notify("Task archived")
+
+                # Notify LogPane to refresh so archived tasks appear immediately
+                try:
+                    from logui.ui.screens.log import LogPane
+
+                    try:
+                        log_pane = self.app.query_one(LogPane)
+                    except Exception:  # noqa: BLE001
+                        log_pane = None
+
+                    if log_pane is not None:
+                        try:
+                            log_pane.refresh_log()
+                        except Exception:  # noqa: BLE001
+                            pass
+                except Exception:  # noqa: BLE001
+                    pass
             
             # If list is now empty, show the empty message
             if not self._rows:
@@ -786,8 +803,27 @@ class TasksPane(Container):
         
         # Remove tasks
         for task_id in tasks_to_remove:
-            self._remove_task_from_list(task_id)
-            self._tasks_to_hide.pop(task_id, None)
+            try:
+                # Verify task still exists and is DONE before removing from UI
+                task = None
+                try:
+                    task = self._repo.get_task(task_id)
+                except Exception:  # noqa: BLE001
+                    task = None
+
+                if task is None or task.status == TaskStatus.DONE:
+                    self._remove_task_from_list(task_id)
+                    self._tasks_to_hide.pop(task_id, None)
+                else:
+                    # Task changed state since scheduling; do not archive.
+                    self._tasks_to_hide.pop(task_id, None)
+            except Exception:  # noqa: BLE001
+                # Ensure we don't leave stale entries or crash; fall back to refresh
+                self._tasks_to_hide.pop(task_id, None)
+                try:
+                    self._refresh()
+                except Exception:
+                    pass
 
     def _update_selected_item_in_place(self, updated: Task, *, focus: bool = True) -> None:
         idx = self._selected_index()
