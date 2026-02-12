@@ -432,3 +432,75 @@ def test_archived_tasks_appear_in_log(tmp_path) -> None:
             assert found, "Archived task not found in Log"
 
     asyncio.run(_run())
+
+
+def test_task_form_edit_marks_done_triggers_auto_hide(tmp_path) -> None:
+    """When editing a task via form and marking it as DONE, auto-hide should trigger."""
+    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
+    events_repo = JsonEventRepository(tmp_path / "events.json")
+    config_repo = JsonConfigRepository(tmp_path / "config.json")
+
+    # Create a task in TODO status
+    task = Task.create(title="Task to complete via form", status=TaskStatus.TODO)
+    tasks_repo.upsert_task(task)
+
+    async def _run() -> None:
+        # Enable auto-hide
+        config = AppConfig(ui=UIConfig(auto_hide_completed=True))
+        config_repo.save(config)
+
+        app = AutoHideTestApp(tasks_repo, events_repo, config_repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            tasks_pane = app.query_one(TasksPane)
+            lv = tasks_pane.query_one("#tasks_list")
+
+            # Verify task is visible initially
+            assert len(lv) == 1
+            lv.index = 0
+
+            # Open the edit form
+            tasks_pane.action_edit()
+            await pilot.pause()
+
+            # Verify we're on the form screen
+            from logui.ui.screens.tasks import TaskFormScreen
+            assert isinstance(app.screen, TaskFormScreen)
+
+            # Change status to DONE in the form
+            form = app.screen
+            from textual.widgets import Select
+            status_select = form.query_one("#status", Select)
+            status_select.value = "done"
+
+            # Submit the form
+            form.action_submit()
+            await pilot.pause()
+
+            # Verify task is now DONE in repository
+            repo_task = tasks_repo.get_task(task.id)
+            assert repo_task is not None
+            assert repo_task.status == TaskStatus.DONE
+
+            # Verify task was added to _tasks_to_hide
+            assert task.id in tasks_pane._tasks_to_hide, "Task should be scheduled for auto-hide"
+
+            # Force the recorded timestamp to be older than the threshold
+            import time
+            for k in list(tasks_pane._tasks_to_hide.keys()):
+                tasks_pane._tasks_to_hide[k] = time.time() - 10.0
+
+            # Run the auto-hide check
+            tasks_pane._check_auto_hide_tasks()
+
+            # Task should now be hidden from the UI (verify internal _rows structure)
+            await pilot.pause()
+            assert len(tasks_pane._rows) == 0, "Completed task should be hidden from tasks list"
+
+            # Repository should still have the completed task
+            repo_task_after = tasks_repo.get_task(task.id)
+            assert repo_task_after is not None
+            assert repo_task_after.status == TaskStatus.DONE
+
+    asyncio.run(_run())

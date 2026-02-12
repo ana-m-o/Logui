@@ -1026,6 +1026,9 @@ class TasksPane(Container):
             if result is None:
                 return
             try:
+                # Save previous status to check if task was just marked as DONE
+                previous_status = task.status
+                
                 updated = update_task(
                     self._repo,
                     task.id,
@@ -1043,7 +1046,27 @@ class TasksPane(Container):
                 updated.repeat = result.repeat
                 self._repo.upsert_task(updated)
                 self._update_selected_item_in_place(updated)
-                self._notify("Task updated")
+                
+                # Check if auto-hide is enabled and task was just marked as DONE
+                auto_hide_enabled = False
+                try:
+                    from logui.usecases.config import ConfigRepository
+                    config_repo = getattr(self.app, "_config_repo", None)
+                    if config_repo and isinstance(config_repo, ConfigRepository):
+                        config = config_repo.load()
+                        auto_hide_enabled = config.ui.auto_hide_completed
+                except Exception:  # noqa: BLE001
+                    pass
+                
+                # If marked as DONE and auto-hide is enabled, schedule removal
+                if updated.status == TaskStatus.DONE and previous_status != TaskStatus.DONE and auto_hide_enabled:
+                    import time
+                    task_id = updated.id
+                    # Record timestamp for polling-based removal
+                    self._tasks_to_hide[task_id] = time.time()
+                    self._notify("Task updated (will archive in a few seconds)")
+                else:
+                    self._notify("Task updated")
             except ValidationError as e:
                 self._notify(f"Error: {e}")
 
