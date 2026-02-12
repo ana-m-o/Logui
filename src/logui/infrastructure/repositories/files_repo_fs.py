@@ -20,6 +20,9 @@ class FsFilesRepository(FilesRepository):
                 continue
             if p.suffix.lower() != ".txt":
                 continue
+            # Skip hidden files (starting with dot)
+            if p.name.startswith("."):
+                continue
             names.append(p.name)
 
         names.sort(key=lambda s: s.lower())

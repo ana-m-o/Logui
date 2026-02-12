@@ -748,6 +748,23 @@ class TasksPane(Container):
                 item_to_remove = items[idx]
                 item_to_remove.remove()
                 self._notify("Task archived")
+
+                # Notify LogPane to refresh so archived tasks appear immediately
+                try:
+                    from logui.ui.screens.log import LogPane
+
+                    try:
+                        log_pane = self.app.query_one(LogPane)
+                    except Exception:  # noqa: BLE001
+                        log_pane = None
+
+                    if log_pane is not None:
+                        try:
+                            log_pane.refresh_log()
+                        except Exception:  # noqa: BLE001
+                            pass
+                except Exception:  # noqa: BLE001
+                    pass
             
             # If list is now empty, show the empty message
             if not self._rows:
@@ -786,8 +803,27 @@ class TasksPane(Container):
         
         # Remove tasks
         for task_id in tasks_to_remove:
-            self._remove_task_from_list(task_id)
-            self._tasks_to_hide.pop(task_id, None)
+            try:
+                # Verify task still exists and is DONE before removing from UI
+                task = None
+                try:
+                    task = self._repo.get_task(task_id)
+                except Exception:  # noqa: BLE001
+                    task = None
+
+                if task is None or task.status == TaskStatus.DONE:
+                    self._remove_task_from_list(task_id)
+                    self._tasks_to_hide.pop(task_id, None)
+                else:
+                    # Task changed state since scheduling; do not archive.
+                    self._tasks_to_hide.pop(task_id, None)
+            except Exception:  # noqa: BLE001
+                # Ensure we don't leave stale entries or crash; fall back to refresh
+                self._tasks_to_hide.pop(task_id, None)
+                try:
+                    self._refresh()
+                except Exception:
+                    pass
 
     def _update_selected_item_in_place(self, updated: Task, *, focus: bool = True) -> None:
         idx = self._selected_index()
@@ -990,6 +1026,9 @@ class TasksPane(Container):
             if result is None:
                 return
             try:
+                # Save previous status to check if task was just marked as DONE
+                previous_status = task.status
+                
                 updated = update_task(
                     self._repo,
                     task.id,
@@ -1007,7 +1046,27 @@ class TasksPane(Container):
                 updated.repeat = result.repeat
                 self._repo.upsert_task(updated)
                 self._update_selected_item_in_place(updated)
-                self._notify("Task updated")
+                
+                # Check if auto-hide is enabled and task was just marked as DONE
+                auto_hide_enabled = False
+                try:
+                    from logui.usecases.config import ConfigRepository
+                    config_repo = getattr(self.app, "_config_repo", None)
+                    if config_repo and isinstance(config_repo, ConfigRepository):
+                        config = config_repo.load()
+                        auto_hide_enabled = config.ui.auto_hide_completed
+                except Exception:  # noqa: BLE001
+                    pass
+                
+                # If marked as DONE and auto-hide is enabled, schedule removal
+                if updated.status == TaskStatus.DONE and previous_status != TaskStatus.DONE and auto_hide_enabled:
+                    import time
+                    task_id = updated.id
+                    # Record timestamp for polling-based removal
+                    self._tasks_to_hide[task_id] = time.time()
+                    self._notify("Task updated (will archive in a few seconds)")
+                else:
+                    self._notify("Task updated")
             except ValidationError as e:
                 self._notify(f"Error: {e}")
 
