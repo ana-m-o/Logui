@@ -46,3 +46,19 @@ def test_fs_files_repo_path_for_is_basename(tmp_path: Path) -> None:
     # path_for hardens to basename, so it ends inside base dir
     assert p.name == "escape.txt"
     assert str(p).startswith(str((tmp_path / "files").resolve()))
+
+
+def test_fs_files_repo_filters_hidden_files(tmp_path: Path) -> None:
+    from logui.infrastructure.repositories.files_repo_fs import FsFilesRepository
+
+    repo = FsFilesRepository(tmp_path / "files")
+
+    # Create visible and hidden txt files
+    (tmp_path / "files").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "files" / "visible.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "files" / ".hidden.txt").write_text("y", encoding="utf-8")
+    (tmp_path / "files" / "another.txt").write_text("z", encoding="utf-8")
+
+    # Only visible files should be listed
+    assert repo.list_txt_files() == ["another.txt", "visible.txt"]
+    assert ".hidden.txt" not in repo.list_txt_files()
