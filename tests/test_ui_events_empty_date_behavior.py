@@ -8,7 +8,8 @@ from datetime import date, time, timedelta
 
 def test_edit_event_clearing_date_uses_today(tmp_path, monkeypatch) -> None:
     """When editing an event and clearing the date field, it should use today, not preserve original."""
-    from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
+    from logui.infrastructure.persistence import SQLiteDatabase
+    from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
     from logui.ui.app import LogUIApp
     from logui.ui.screens.events import EventsPane
     from logui.usecases.events import CreateEventInput, create_event
@@ -17,7 +18,9 @@ def test_edit_event_clearing_date_uses_today(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(LogUIApp, "_default_data_dir", lambda self: tmp_path)
 
     # Create an event with a date in the past (yesterday) but end time in the future to ensure it shows
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     yesterday = date.today() - timedelta(days=1)
     
     event = create_event(
@@ -80,7 +83,8 @@ def test_edit_event_clearing_date_uses_today(tmp_path, monkeypatch) -> None:
 
 def test_new_event_empty_date_defaults_to_today(tmp_path, monkeypatch) -> None:
     """When creating a new event with empty date field, it should use today."""
-    from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
+    from logui.infrastructure.persistence import SQLiteDatabase
+    from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
     from logui.ui.app import LogUIApp
     from logui.ui.screens.events import EventsPane
     from textual.widgets import Input
@@ -121,7 +125,8 @@ def test_new_event_empty_date_defaults_to_today(tmp_path, monkeypatch) -> None:
             await pilot.pause()
 
             # Verify the event was created with today's date
-            repo = JsonEventRepository(tmp_path / "events.json")
+            db = SQLiteDatabase(tmp_path / "logui.db")
+            repo = SqliteEventRepository(db)
             all_events = repo.list_events()
             assert len(all_events) == 1
             assert all_events[0].date == date.today(), \

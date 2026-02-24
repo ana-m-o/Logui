@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import date
 
 from logui.domain.entities import Task
-from logui.infrastructure.repositories import JsonJournalRepository, JsonTaskRepository
+from logui.infrastructure.repositories.journal_repo_json import JsonJournalRepository
+from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
 
 
 def test_json_task_repo_roundtrip(tmp_path) -> None:

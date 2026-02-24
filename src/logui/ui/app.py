@@ -18,12 +18,13 @@ from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widgets import ContentSwitcher, Footer, Header, ListItem, ListView, Static
 
-from logui.infrastructure.repositories.config_repo_json import JsonConfigRepository
+from logui.infrastructure.persistence import SQLiteDatabase
 from logui.infrastructure.repositories.bootstrap_repo_json import JsonBootstrapRepository
-from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
+from logui.infrastructure.repositories.config_repo_sqlite import SqliteConfigRepository
+from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
 from logui.infrastructure.repositories.files_repo_fs import FsFilesRepository
-from logui.infrastructure.repositories.journal_repo_json import JsonJournalRepository
-from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
+from logui.infrastructure.repositories.journal_repo_sqlite import SqliteJournalRepository
+from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
 from logui.infrastructure.services.sound import play_notification_sound
 from logui.ui.dates import fmt_day_header_en
 from logui.ui.screens.config import ConfigPane
@@ -167,15 +168,20 @@ class LogUIApp(App):
         )
         ensure_data_dir(self._data_dir)
 
-        # Full config lives inside the data directory.
-        self._config_repo = JsonConfigRepository(self._data_dir / "config.json")
+        # Initialize SQLite database
+        db_path = self._data_dir / "logui.db"
+        self._db = SQLiteDatabase(db_path)
+        self._db.init_schema()
+
+        # Initialize repositories using SQLite
+        self._config_repo = SqliteConfigRepository(self._db)
         config = self._config_repo.load()
 
         files_dir = self._data_dir / "files"
         files_dir.mkdir(parents=True, exist_ok=True)
-        self._events_repo = JsonEventRepository(self._data_dir / "events.json")
-        self._tasks_repo = JsonTaskRepository(self._data_dir / "tasks.json")
-        self._journal_repo = JsonJournalRepository(self._data_dir / "journal.json")
+        self._events_repo = SqliteEventRepository(self._db)
+        self._tasks_repo = SqliteTaskRepository(self._db)
+        self._journal_repo = SqliteJournalRepository(self._db)
         self._files_repo = FsFilesRepository(files_dir)
         self._sent_notification_keys: set[str] = set()
         logui_dir = Path(__file__).resolve().parents[1]
@@ -215,17 +221,26 @@ class LogUIApp(App):
                 editor=current_config.editor,
                 encryption=current_config.encryption,
                 notifications=current_config.notifications,
+                ui=current_config.ui,
                 data_directory=None,
             )
-            JsonConfigRepository(target_dir / "config.json").save(cleaned_config)
+            # Initialize new database and save config
+            new_db = SQLiteDatabase(target_dir / "logui.db")
+            new_db.init_schema()
+            new_config_repo = SqliteConfigRepository(new_db)
+            new_config_repo.save(cleaned_config)
         except (OSError, ValueError, TypeError) as e:
             _log.warning("Failed copying config to new data directory: %s", e)
 
         if move_files:
-            # Copy everything from current data dir into the new dir, but keep
-            # the target config.json we just wrote (settings should come along).
+            # Copy everything from current data dir into the new dir, but skip
+            # the database we just created (settings should come along).
             for item in current_dir.iterdir():
-                if item.name == "config.json":
+                if item.name in ("logui.db", "logui.db-wal", "logui.db-shm"):
+                    # Skip database files - new DB was already initialized above
+                    continue
+                if item.name.endswith(".json"):
+                    # Skip old JSON files - data should be in SQLite now
                     continue
                 dest = target_dir / item.name
                 try:

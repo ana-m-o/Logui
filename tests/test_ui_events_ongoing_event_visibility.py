@@ -8,7 +8,8 @@ def test_ongoing_multiday_event_shows_in_events_not_log(tmp_path, monkeypatch) -
     """Regression: eventos multi-día que cruzan 'hoy' deben verse en Events, no en Log."""
 
     from logui.domain.entities.event import Event
-    from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
+    from logui.infrastructure.persistence import SQLiteDatabase
+    from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
     from logui.ui.app import LogUIApp
     from logui.ui.screens.events import EventsPane
     from logui.ui.screens.log import LogPane
@@ -28,7 +29,9 @@ def test_ongoing_multiday_event_shows_in_events_not_log(tmp_path, monkeypatch) -
     # Seed an ongoing multi-day event that started in the past.
     start_day = date(2025, 12, 22)
     end_day = date(2026, 1, 16)
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     ev = Event.create(
         "Cross-year event",
         day=start_day,
