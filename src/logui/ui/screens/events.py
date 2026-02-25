@@ -1014,7 +1014,7 @@ class EventsPane(Container):
         row = Container(
             Horizontal(
                 Static(self._event_notify_glyph(ev), classes="event_notify", markup=False),
-                Label(main, classes="event_row_main", markup=False),
+                Label(main, classes="event_row_main", markup=True),
                 repeat_w,
                 classes="event_row_main_line",
             ),
