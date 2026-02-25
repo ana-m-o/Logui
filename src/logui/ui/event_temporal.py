@@ -5,6 +5,27 @@ from datetime import date, datetime, time, timedelta
 from logui.domain.entities.event import Event
 
 
+def get_display_date_for_event(ev: Event, *, today: date) -> date:
+    """Get the date that should be displayed for an event.
+    
+    For recurring events, returns the next occurrence date.
+    For non-recurring events, returns the base date.
+    """
+    if ev.repeat and isinstance(ev.repeat, dict):
+        freq = ev.repeat.get("freq")
+        if freq and freq != "none":
+            # If the event occurs today, show today
+            if ev.occurs_on(today):
+                return today
+            
+            # If the event has passed for today, show the next occurrence
+            next_date = ev.next_occurrence(after=today - timedelta(days=1))
+            if next_date and next_date >= today:
+                return next_date
+    
+    return ev.date
+
+
 def is_visible_in_events_pane(ev: Event, *, today: date) -> bool:
     """Whether an event should be shown in the Events list.
 
@@ -12,16 +33,16 @@ def is_visible_in_events_pane(ev: Event, *, today: date) -> bool:
     - Are on or after today (for non-recurring events), OR
     - Are today's past events (show events from today even if they ended), OR
     - Are multi-day events still ongoing (end date >= today), OR
-    - Are recurring events with base date >= today (past recurring events get cloned)
+    - Are recurring events that have a next occurrence (including today or future)
     """
 
-    # For events with recurrence, only show if base date is today or later
-    # (Past recurring events should have been cloned during rollover)
+    # For events with recurrence, show if they have a next occurrence
     if ev.repeat and isinstance(ev.repeat, dict):
         freq = ev.repeat.get("freq")
         if freq and freq != "none":
-            # Only show recurring events if their base date is today or in the future
-            return ev.date >= today
+            # Show if there's a next occurrence (today or future)
+            display_date = get_display_date_for_event(ev, today=today)
+            return display_date >= today
 
     # For non-recurring events (including events that were recurring but are now cloned),
     # check if the event's end date (considering multi-day offset) is today or later
@@ -34,16 +55,19 @@ def is_visible_in_events_pane(ev: Event, *, today: date) -> bool:
 
 def temporal_classnames(ev: Event, *, now: datetime) -> set[str]:
     """Compute CSS classnames for an event row based on time."""
+    
+    today = now.date()
+    display_date = get_display_date_for_event(ev, today=today)
 
-    start_dt = datetime.combine(ev.date, ev.start_time or time(0, 0))
+    start_dt = datetime.combine(display_date, ev.start_time or time(0, 0))
 
     if ev.start_time is None:
         days = int(ev.end_day_offset or 0) + 1
-        end_dt = datetime.combine(ev.date, time(0, 0)) + timedelta(days=days)
+        end_dt = datetime.combine(display_date, time(0, 0)) + timedelta(days=days)
     elif ev.end_time is None:
         end_dt = start_dt + timedelta(hours=1)
     else:
-        end_dt = datetime.combine(ev.date, ev.end_time) + timedelta(
+        end_dt = datetime.combine(display_date, ev.end_time) + timedelta(
             days=int(ev.end_day_offset or 0)
         )
 
