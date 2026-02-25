@@ -20,7 +20,7 @@ def main() -> int:
                 logging.StreamHandler(sys.stderr),
             ],
         )
-        
+
         run()
         return 0
     except KeyboardInterrupt:

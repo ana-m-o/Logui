@@ -110,10 +110,7 @@ LogUI also supports a **custom data directory**. To make startup reliable (so th
 
 The *actual* data files live in the active data directory:
 
-- `config.json`: General configuration
-- `tasks.json`: Persistent tasks
-- `events.json`: Events
-- `journal.json`: Journal entries by date
+- `logui.db`: SQLite database containing all configuration, tasks, events, and journal entries
 - `files/`: Managed `.txt` files
 
 If you never change the data directory, everything (including `bootstrap.json`) simply lives under `~/.logui/`.
@@ -128,12 +125,12 @@ You can change the data directory from inside the app:
 
 When you confirm, LogUI will ask whether you want to migrate existing data to the new directory.
 
-- If you choose **Yes**, LogUI copies existing data files into the new directory.
-- If you choose **No**, LogUI will start using the new directory (and write a fresh `config.json` there), but existing data will remain in the old directory.
+- If you choose **Yes**, LogUI copies existing data into the new directory.
+- If you choose **No**, LogUI will start using the new directory (and create a fresh database there), but existing data will remain in the old directory.
 
 After changing, LogUI updates `~/.logui/bootstrap.json` so future launches keep using the selected directory.
 
-Note about the editor: by default, `nano` is used, but if the configured editor does not exist on your system, LogUI will try to detect another available editor (including `VISUAL`/`EDITOR`) and save it in `config.json`.
+Note about the editor: by default, `nano` is used, but if the configured editor does not exist on your system, LogUI will try to detect another available editor (including `VISUAL`/`EDITOR`) and save it in the configuration.
 
 Encryption is optional and can be enabled from the configuration.
 

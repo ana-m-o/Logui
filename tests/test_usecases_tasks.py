@@ -6,7 +6,8 @@ import pytest
 
 from logui.domain.entities.task import TaskLink, TaskStatus
 from logui.domain.errors import ValidationError
-from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
+from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
 from logui.usecases.tasks import (
     CreateTaskInput,
     UpdateTaskPatch,
@@ -26,7 +27,9 @@ from logui.usecases.tasks import (
 
 
 def test_create_task_persists_and_defaults_status(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
 
     task = create_task(repo, CreateTaskInput(title="Tarea 1"))
 
@@ -40,7 +43,9 @@ def test_create_task_persists_and_defaults_status(tmp_path) -> None:
 
 
 def test_create_task_with_due_date_inserts_before_tasks_without_due_date(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
 
     create_task(repo, CreateTaskInput(title="A"))
     create_task(repo, CreateTaskInput(title="B"))
@@ -52,7 +57,9 @@ def test_create_task_with_due_date_inserts_before_tasks_without_due_date(tmp_pat
 
 
 def test_create_task_with_due_date_keeps_existing_due_date_tasks_above_boundary(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
 
     x = create_task(repo, CreateTaskInput(title="X", due_date=date(2025, 12, 30)))
     a = create_task(repo, CreateTaskInput(title="A"))
@@ -73,7 +80,9 @@ def test_create_task_with_due_date_keeps_existing_due_date_tasks_above_boundary(
 
 
 def test_toggle_task_priority(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     task = create_task(repo, CreateTaskInput(title="Tarea 1", priority=False))
 
     updated = toggle_task_priority(repo, task.id)
@@ -82,7 +91,9 @@ def test_toggle_task_priority(tmp_path) -> None:
 
 
 def test_cycle_task_status_wraps(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     task = create_task(repo, CreateTaskInput(title="Tarea 1", status=TaskStatus.DONE))
 
     updated = cycle_task_status(repo, task.id)
@@ -91,7 +102,9 @@ def test_cycle_task_status_wraps(tmp_path) -> None:
 
 
 def test_update_task_can_set_and_clear_due_date(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     task = create_task(repo, CreateTaskInput(title="Tarea 1"))
 
     updated = update_task(repo, task.id, UpdateTaskPatch(due_date=date(2025, 12, 25)))
@@ -104,7 +117,9 @@ def test_update_task_can_set_and_clear_due_date(tmp_path) -> None:
 
 
 def test_update_task_can_set_and_clear_link(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     task = create_task(repo, CreateTaskInput(title="Tarea 1"))
 
     updated = update_task(
@@ -121,7 +136,9 @@ def test_update_task_can_set_and_clear_link(tmp_path) -> None:
 
 
 def test_update_task_sets_due_date_and_type(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     task = create_task(repo, CreateTaskInput(title="Tarea 1"))
 
     updated = update_task(
@@ -134,7 +151,9 @@ def test_update_task_sets_due_date_and_type(tmp_path) -> None:
 
 
 def test_move_task_up_swaps_order_with_previous(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     create_task(repo, CreateTaskInput(title="A"))
     create_task(repo, CreateTaskInput(title="B"))
     c = create_task(repo, CreateTaskInput(title="C"))
@@ -147,7 +166,9 @@ def test_move_task_up_swaps_order_with_previous(tmp_path) -> None:
 
 
 def test_move_task_down_swaps_order_with_next(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     a = create_task(repo, CreateTaskInput(title="A"))
     create_task(repo, CreateTaskInput(title="B"))
     _c = create_task(repo, CreateTaskInput(title="C"))
@@ -160,7 +181,9 @@ def test_move_task_down_swaps_order_with_next(tmp_path) -> None:
 
 
 def test_move_task_at_boundaries_is_noop(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     a = create_task(repo, CreateTaskInput(title="A"))
     b = create_task(repo, CreateTaskInput(title="B"))
 
@@ -174,7 +197,9 @@ def test_move_task_at_boundaries_is_noop(tmp_path) -> None:
 
 
 def test_move_subtask_up_swaps_order_with_previous_sibling(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     parent = create_task(repo, CreateTaskInput(title="Parent"))
 
     _a = create_subtask(repo, parent.id, CreateTaskInput(title="A"))
@@ -193,7 +218,9 @@ def test_move_subtask_up_swaps_order_with_previous_sibling(tmp_path) -> None:
 
 
 def test_move_subtask_down_swaps_order_with_next_sibling(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     parent = create_task(repo, CreateTaskInput(title="Parent"))
 
     a = create_subtask(repo, parent.id, CreateTaskInput(title="A"))
@@ -212,7 +239,9 @@ def test_move_subtask_down_swaps_order_with_next_sibling(tmp_path) -> None:
 
 
 def test_move_subtask_at_boundaries_is_noop(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     parent = create_task(repo, CreateTaskInput(title="Parent"))
 
     a = create_subtask(repo, parent.id, CreateTaskInput(title="A"))
@@ -233,7 +262,9 @@ def test_move_subtask_at_boundaries_is_noop(tmp_path) -> None:
 
 
 def test_create_subtask_persists_under_parent(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     parent = create_task(repo, CreateTaskInput(title="Parent"))
 
     s1 = create_subtask(repo, parent.id, CreateTaskInput(title="Child 1"))
@@ -251,7 +282,9 @@ def test_create_subtask_persists_under_parent(tmp_path) -> None:
 
 
 def test_create_subtask_persists_link(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     parent = create_task(repo, CreateTaskInput(title="Parent"))
 
     s1 = create_subtask(
@@ -271,7 +304,9 @@ def test_create_subtask_persists_link(tmp_path) -> None:
 
 
 def test_create_subtask_with_due_date_inserts_before_siblings_without_due_date(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     parent = create_task(repo, CreateTaskInput(title="Parent"))
 
     a = create_subtask(repo, parent.id, CreateTaskInput(title="A"))
@@ -293,7 +328,9 @@ def test_create_subtask_with_due_date_inserts_before_siblings_without_due_date(t
 
 
 def test_update_and_delete_subtask(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     parent = create_task(repo, CreateTaskInput(title="Parent"))
     sub = create_subtask(repo, parent.id, CreateTaskInput(title="Child"))
 
@@ -311,7 +348,9 @@ def test_update_and_delete_subtask(tmp_path) -> None:
 
 
 def test_task_notes_crud_on_subtask(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     parent = create_task(repo, CreateTaskInput(title="Parent"))
     sub = create_subtask(repo, parent.id, CreateTaskInput(title="Child"))
 
@@ -339,7 +378,9 @@ def test_task_notes_crud_on_subtask(tmp_path) -> None:
 
 
 def test_add_empty_task_note_rejected(tmp_path) -> None:
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     task = create_task(repo, CreateTaskInput(title="T"))
 
     with pytest.raises(ValidationError):

@@ -15,7 +15,9 @@ def initial_end_day_default(*, start_day: date, end_day_offset: int) -> date | N
     return None
 
 
-def initial_last_sync_end_day(*, start_day: date, end_day_offset: int, prefill_dates: bool) -> date | None:
+def initial_last_sync_end_day(
+    *, start_day: date, end_day_offset: int, prefill_dates: bool
+) -> date | None:
     """Compute the initial tracked end day used for start_day shifting logic."""
 
     if not prefill_dates:

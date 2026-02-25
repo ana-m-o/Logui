@@ -22,10 +22,13 @@ class TasksLinkOpenTestApp(App[None]):
 
 
 def test_tasks_open_link_uses_default_browser(tmp_path, monkeypatch) -> None:
-    from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
     from logui.ui.screens.tasks import TaskFormScreen, TasksPane
 
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
 
     opened: list[str] = []
 

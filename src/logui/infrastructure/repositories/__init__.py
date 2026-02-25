@@ -1,11 +1,13 @@
 """Repositorios - Persistencia de datos."""
 
-from .events_repo_json import JsonEventRepository
-from .journal_repo_json import JsonJournalRepository
-from .tasks_repo_json import JsonTaskRepository
+from .config_repo_sqlite import SqliteConfigRepository
+from .events_repo_sqlite import SqliteEventRepository
+from .journal_repo_sqlite import SqliteJournalRepository
+from .tasks_repo_sqlite import SqliteTaskRepository
 
 __all__ = [
-    "JsonEventRepository",
-    "JsonJournalRepository",
-    "JsonTaskRepository",
+    "SqliteConfigRepository",
+    "SqliteEventRepository",
+    "SqliteJournalRepository",
+    "SqliteTaskRepository",
 ]

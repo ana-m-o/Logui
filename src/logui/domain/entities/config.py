@@ -141,9 +141,7 @@ class AppConfig:
         notifications = NotificationsConfig.from_dict(
             data.get("notifications") if isinstance(data.get("notifications"), dict) else None
         )
-        ui = UIConfig.from_dict(
-            data.get("ui") if isinstance(data.get("ui"), dict) else None
-        )
+        ui = UIConfig.from_dict(data.get("ui") if isinstance(data.get("ui"), dict) else None)
         raw_data_directory = data.get("data_directory")
         data_directory = str(raw_data_directory).strip() if raw_data_directory is not None else ""
         if not data_directory:

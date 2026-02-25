@@ -1,9 +1,9 @@
 """Main Textual application."""
 
-from importlib import metadata as importlib_metadata
 import logging
 import sys
 from datetime import date, datetime
+from importlib import metadata as importlib_metadata
 from pathlib import Path
 
 if sys.version_info >= (3, 11):
@@ -18,12 +18,15 @@ from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widgets import ContentSwitcher, Footer, Header, ListItem, ListView, Static
 
-from logui.infrastructure.repositories.config_repo_json import JsonConfigRepository
+from logui.domain.entities.bootstrap import BootstrapConfig
+from logui.domain.entities.config import AppConfig
+from logui.infrastructure.persistence import SQLiteDatabase
 from logui.infrastructure.repositories.bootstrap_repo_json import JsonBootstrapRepository
-from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
+from logui.infrastructure.repositories.config_repo_sqlite import SqliteConfigRepository
+from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
 from logui.infrastructure.repositories.files_repo_fs import FsFilesRepository
-from logui.infrastructure.repositories.journal_repo_json import JsonJournalRepository
-from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
+from logui.infrastructure.repositories.journal_repo_sqlite import SqliteJournalRepository
+from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
 from logui.infrastructure.services.sound import play_notification_sound
 from logui.ui.dates import fmt_day_header_en
 from logui.ui.screens.config import ConfigPane
@@ -32,14 +35,12 @@ from logui.ui.screens.files import FilesPane
 from logui.ui.screens.journal import JournalPane
 from logui.ui.screens.log import LogPane
 from logui.ui.screens.tasks import TasksPane
+from logui.usecases.data_directory import ensure_data_dir
 from logui.usecases.event_notifications import (
     DEFAULT_ALL_DAY_NOTIFY_TIME,
     due_notifications,
     notification_key,
 )
-from logui.usecases.data_directory import ensure_data_dir
-from logui.domain.entities.bootstrap import BootstrapConfig
-from logui.domain.entities.config import AppConfig
 
 _log = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ class NavItem(ListItem):
 
     def compose(self) -> ComposeResult:
         yield Static(self._base_label, markup=True, id=f"nav_label_{self.screen_id}")
-    
+
     def update_label(self, text: str) -> None:
         """Update the navigation item label."""
         try:
@@ -131,7 +132,7 @@ class Sidebar(Container):
 
 class LogUIApp(App):
     """TUI de productividad LogUI."""
-    
+
     CSS_PATH = [
         "styles/app.tcss",
     ]
@@ -167,15 +168,20 @@ class LogUIApp(App):
         )
         ensure_data_dir(self._data_dir)
 
-        # Full config lives inside the data directory.
-        self._config_repo = JsonConfigRepository(self._data_dir / "config.json")
-        config = self._config_repo.load()
+        # Initialize SQLite database
+        db_path = self._data_dir / "logui.db"
+        self._db = SQLiteDatabase(db_path)
+        self._db.init_schema()
+
+        # Initialize repositories using SQLite
+        self._config_repo = SqliteConfigRepository(self._db)
+        self._config_repo.load()  # Ensure config is initialized
 
         files_dir = self._data_dir / "files"
         files_dir.mkdir(parents=True, exist_ok=True)
-        self._events_repo = JsonEventRepository(self._data_dir / "events.json")
-        self._tasks_repo = JsonTaskRepository(self._data_dir / "tasks.json")
-        self._journal_repo = JsonJournalRepository(self._data_dir / "journal.json")
+        self._events_repo = SqliteEventRepository(self._db)
+        self._tasks_repo = SqliteTaskRepository(self._db)
+        self._journal_repo = SqliteJournalRepository(self._db)
         self._files_repo = FsFilesRepository(files_dir)
         self._sent_notification_keys: set[str] = set()
         logui_dir = Path(__file__).resolve().parents[1]
@@ -185,7 +191,7 @@ class LogUIApp(App):
         # without requiring a restart.
         self._ui_day: date = datetime.now().date()
         self._poll_counter: int = 0  # Counter for 30-second tasks
-        
+
         # Track last rollover date to detect missed rollovers on startup
         self._state_file = self._data_dir / ".state.json"
 
@@ -215,17 +221,26 @@ class LogUIApp(App):
                 editor=current_config.editor,
                 encryption=current_config.encryption,
                 notifications=current_config.notifications,
+                ui=current_config.ui,
                 data_directory=None,
             )
-            JsonConfigRepository(target_dir / "config.json").save(cleaned_config)
+            # Initialize new database and save config
+            new_db = SQLiteDatabase(target_dir / "logui.db")
+            new_db.init_schema()
+            new_config_repo = SqliteConfigRepository(new_db)
+            new_config_repo.save(cleaned_config)
         except (OSError, ValueError, TypeError) as e:
             _log.warning("Failed copying config to new data directory: %s", e)
 
         if move_files:
-            # Copy everything from current data dir into the new dir, but keep
-            # the target config.json we just wrote (settings should come along).
+            # Copy everything from current data dir into the new dir, but skip
+            # the database we just created (settings should come along).
             for item in current_dir.iterdir():
-                if item.name == "config.json":
+                if item.name in ("logui.db", "logui.db-wal", "logui.db-shm"):
+                    # Skip database files - new DB was already initialized above
+                    continue
+                if item.name.endswith(".json"):
+                    # Skip old JSON files - data should be in SQLite now
                     continue
                 dest = target_dir / item.name
                 try:
@@ -268,7 +283,7 @@ class LogUIApp(App):
     def on_mount(self) -> None:
         self._set_active("tasks")
         self._update_header_date()
-        
+
         # Load and apply saved theme
         config = self._config_repo.load()
         if config.ui.theme:
@@ -276,10 +291,11 @@ class LogUIApp(App):
                 self.theme = config.ui.theme
             except Exception as e:  # noqa: BLE001
                 _log.debug("Failed to apply saved theme %s: %s", config.ui.theme, e)
-    
+
     def watch_theme(self, theme_name: str) -> None:
         """Watch theme changes and persist them to config."""
         from logui.usecases.config import set_theme
+
         try:
             set_theme(repo=self._config_repo, theme_name=theme_name)
         except Exception as e:  # noqa: BLE001
@@ -312,11 +328,11 @@ class LogUIApp(App):
             self._poll_event_notifications()  # Run notifications immediately
         except Exception as e:  # noqa: BLE001
             _log.exception("Failed starting polling: %s", e)
-    
+
     def _poll(self) -> None:
         """Unified polling function called every 15 seconds."""
         self._poll_counter += 1
-        
+
         # Every 15 seconds: check event notifications
         self._poll_event_notifications()
 
@@ -329,12 +345,12 @@ class LogUIApp(App):
             return
         except Exception as e:  # noqa: BLE001
             _log.debug("Log refresh poll failed: %s", e)
-        
+
         # Every 30 seconds (every 2nd call): check day rollover and update counts
         if self._poll_counter % 2 == 0:
             self._poll_day_rollover()
             self.update_nav_counts()
-    
+
     def update_nav_counts(self) -> None:
         """Update navigation item labels with counts. Public method."""
         try:
@@ -348,11 +364,12 @@ class LogUIApp(App):
             return
         except Exception as e:  # noqa: BLE001
             _log.debug("Failed updating nav counts: %s", e)
-    
+
     def _count_today_events(self) -> int:
         """Count events for today, including multi-day events in progress."""
         try:
             from datetime import datetime
+
             now = datetime.now()
             today = now.date()
             events = self._events_repo.list_events()
@@ -360,15 +377,15 @@ class LogUIApp(App):
             for ev in events:
                 # Calculate end day
                 end_day = ev.date.fromordinal(ev.date.toordinal() + int(ev.end_day_offset or 0))
-                
+
                 # Skip if event ended before today
                 if end_day < today:
                     continue
-                
+
                 # Skip if event starts after today
                 if ev.date > today:
                     continue
-                
+
                 # Event is within date range (started on or before today, ends on or after today)
                 # Now check if it has already finished based on time
                 if end_day == today and ev.end_time is not None:
@@ -376,7 +393,7 @@ class LogUIApp(App):
                     end_datetime = datetime.combine(end_day, ev.end_time)
                     if now >= end_datetime:
                         continue  # Event already finished
-                
+
                 count += 1
             return count
         except Exception as e:  # noqa: BLE001
@@ -398,43 +415,45 @@ class LogUIApp(App):
         """Check if we missed any rollovers while the app was closed."""
         today = self._ui_day
         last_rollover = self._load_last_rollover_date()
-        
+
         # If no previous state, save current date and return
         if last_rollover is None:
             self._save_last_rollover_date(today)
             return
-        
+
         # If dates are different, we missed rollover(s)
         if last_rollover < today:
             # Execute rollover after a delay to ensure widgets are fully mounted
             # Using set_timer instead of call_later for better reliability
             self.set_timer(0.5, lambda: self._execute_missed_rollover(today))
-    
+
     def _execute_missed_rollover(self, today: date) -> None:
         """Execute rollover after widgets are mounted."""
         self._day_rollover(today=today)
         self._save_last_rollover_date(today)
-    
+
     def _load_last_rollover_date(self) -> date | None:
         """Load the last rollover date from state file."""
         try:
             if not self._state_file.exists():
                 return None
-            
+
             import json
+
             data = json.loads(self._state_file.read_text())
             date_str = data.get("last_rollover")
             if date_str:
                 return date.fromisoformat(date_str)
         except Exception as e:
             _log.warning(f"Failed loading last rollover date: {e}")
-        
+
         return None
-    
+
     def _save_last_rollover_date(self, rollover_date: date) -> None:
         """Save the last rollover date to state file."""
         try:
             import json
+
             data = {"last_rollover": rollover_date.isoformat()}
             self._state_file.write_text(json.dumps(data, indent=2))
         except Exception as e:
@@ -444,23 +463,26 @@ class LogUIApp(App):
         # Best-effort: ask panes to refresh their date-dependent filtering.
         try:
             from logui.ui.screens.tasks import TasksPane
+
             tasks_pane = self.query_one(TasksPane)
             tasks_pane.on_day_rollover(today=today)
         except (NoMatches, TooManyMatches, AttributeError) as e:
             _log.warning(f"Could not execute rollover on tasks pane: {e}")
         try:
             from logui.ui.screens.events import EventsPane
+
             events_pane = self.query_one(EventsPane)
             events_pane.on_day_rollover(today=today)
         except (NoMatches, TooManyMatches, AttributeError) as e:
             _log.warning(f"Could not execute rollover on events pane: {e}")
         try:
             from logui.ui.screens.log import LogPane
+
             log_pane = self.query_one(LogPane)
             log_pane.on_day_rollover(today=today)
         except (NoMatches, TooManyMatches, AttributeError) as e:
             _log.warning(f"Could not execute rollover on log pane: {e}")
-        
+
         # Update nav counts after rollover processing
         self.update_nav_counts()
 

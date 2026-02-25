@@ -22,13 +22,18 @@ class DayRolloverTestApp(App[None]):
 
 def test_day_rollover_refreshes_tasks_and_events(tmp_path) -> None:
     from logui.domain.entities.task import TaskStatus
-    from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
-    from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
+    from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
     from logui.usecases.events import CreateEventInput, create_event
     from logui.usecases.tasks import CreateTaskInput, UpdateTaskPatch, create_task, update_task
 
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
 
     # Seed a task completed on 2026-01-08 (local day should be stable across TZs: use midday UTC).
     t1 = create_task(tasks_repo, CreateTaskInput(title="Done yesterday"))

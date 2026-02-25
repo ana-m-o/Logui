@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
+from uuid import UUID
 
 from textual import events, on
 from textual.app import ComposeResult
@@ -23,20 +24,15 @@ from textual.widgets import (
 from logui.domain.entities.event import Event, EventNote
 from logui.domain.ports.events import EventRepository
 from logui.ui.dates import fmt_day_compact_friendly
-from logui.ui.screens.event_notes import EventNotesScreen
-from logui.ui.screens.modals import ConfirmScreen
-from logui.usecases.events import (
-    CreateEventInput,
-    UpdateEventPatch,
-    create_event,
-    toggle_event_notify,
-    update_event,
-)
-
-from logui.ui.parsing import parse_date_flexible, today_local
-from logui.ui.event_hints import build_end_day_hint_text, build_start_day_hint_text
+from logui.ui.event_end_day_shift import maybe_shift_end_day_on_start_day_change
 from logui.ui.event_end_sync import _is_time_input_ambiguous, _sync_end_fields_logic
+from logui.ui.event_form_state import (
+    initial_duration_minutes,
+    initial_end_day_default,
+    initial_last_sync_end_day,
+)
 from logui.ui.event_form_submit import parse_event_form_submission
+from logui.ui.event_hints import build_end_day_hint_text, build_start_day_hint_text
 from logui.ui.event_row_format import (
     event_notify_glyph,
     format_event_notes_block,
@@ -47,11 +43,15 @@ from logui.ui.event_temporal import (
     is_visible_in_events_pane,
     temporal_classnames,
 )
-from logui.ui.event_end_day_shift import maybe_shift_end_day_on_start_day_change
-from logui.ui.event_form_state import (
-    initial_duration_minutes,
-    initial_end_day_default,
-    initial_last_sync_end_day,
+from logui.ui.parsing import parse_date_flexible, today_local
+from logui.ui.screens.event_notes import EventNotesScreen
+from logui.ui.screens.modals import ConfirmScreen
+from logui.usecases.events import (
+    CreateEventInput,
+    UpdateEventPatch,
+    create_event,
+    toggle_event_notify,
+    update_event,
 )
 
 _log = logging.getLogger(__name__)
@@ -161,7 +161,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
         # Extract repeat info
         self._current_freq = "none"
         self._current_days_str = ""
-        
+
         if initial.repeat and isinstance(initial.repeat, dict):
             self._current_freq = initial.repeat.get("freq", "none")
             if self._current_freq == "weekly":
@@ -207,9 +207,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
             Horizontal(
                 Input(
                     value=start_day_value,
-                    placeholder=(
-                        "2025-12-25, 5/7, 3/6/26 (empty = today)"
-                    ),
+                    placeholder=("2025-12-25, 5/7, 3/6/26 (empty = today)"),
                     id="start_day",
                 ),
                 Input(
@@ -224,9 +222,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
             Horizontal(
                 Input(
                     value=end_day_value,
-                    placeholder=(
-                        "empty = same day. Multi-day: e.g. 30/1/26"
-                    ),
+                    placeholder=("empty = same day. Multi-day: e.g. 30/1/26"),
                     id="end_day",
                 ),
                 Input(
@@ -245,7 +241,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
                         value=self._current_freq,
                         id="repeat_freq",
                     ),
-                    classes="half_col"
+                    classes="half_col",
                 ),
                 Container(
                     Label("Days (e.g. mon, wed, fri)"),
@@ -313,7 +309,11 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
             if not (days_input.value or "").strip():
                 start_raw = (start_day_input.value or "").strip()
                 try:
-                    start_date = parse_date_flexible(start_raw, today=today_local()) if start_raw else today_local()
+                    start_date = (
+                        parse_date_flexible(start_raw, today=today_local())
+                        if start_raw
+                        else today_local()
+                    )
                 except Exception:  # noqa: BLE001
                     start_date = today_local()
                 day_abbr = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -329,7 +329,11 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
             if not (days_input.value or "").strip():
                 start_raw = (start_day_input.value or "").strip()
                 try:
-                    start_date = parse_date_flexible(start_raw, today=today_local()) if start_raw else today_local()
+                    start_date = (
+                        parse_date_flexible(start_raw, today=today_local())
+                        if start_raw
+                        else today_local()
+                    )
                 except Exception:  # noqa: BLE001
                     start_date = today_local()
                 days_input.value = str(start_date.day)
@@ -378,7 +382,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
         if hasattr(event.control, "id") and event.control.id == "end_time":
             end_time_input = self.query_one("#end_time", Input)
             end_time_raw = (end_time_input.value or "").strip()
-            
+
             # If it was ambiguous but now user is done, re-sync with force
             if end_time_raw and not _is_time_input_ambiguous(end_time_raw):
                 self._sync_end_fields(changed_id="end_time")
@@ -564,24 +568,31 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
         # Build repeat dict
         repeat_freq = str(self.query_one("#repeat_freq", Select).value or "none")
         repeat_dict: dict[str, Any] | None = None
-        
+
         if repeat_freq and repeat_freq != "none":
             repeat_dict = {"freq": repeat_freq}
-            
+
             if repeat_freq == "weekly":
                 weekly_container = self.query_one("#repeat_days_container_weekly", Container)
                 days_input = weekly_container.query_one("#repeat_weekdays", Input)
                 days_text = (days_input.value or "").strip().upper()
-                
+
                 if not days_text:
                     days_input.add_class("error")
-                    error.update("[red]• Weekly repeat requires at least one day (e.g., mon, wed, fri)[/red]")
+                    error.update(
+                        "[red]• Weekly repeat requires at least one day (e.g., mon, wed, fri)[/red]"
+                    )
                     return
                 else:
                     # Parse day abbreviations: mon, tue, wed, thu, fri, sat, sun
                     day_mapping = {
-                        "MON": 0, "TUE": 1, "WED": 2, "THU": 3,
-                        "FRI": 4, "SAT": 5, "SUN": 6
+                        "MON": 0,
+                        "TUE": 1,
+                        "WED": 2,
+                        "THU": 3,
+                        "FRI": 4,
+                        "SAT": 5,
+                        "SUN": 6,
                     }
                     parts = [p.strip().upper() for p in days_text.split(",")]
                     weekdays = []
@@ -590,20 +601,24 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
                             weekdays.append(day_mapping[part])
                         else:
                             days_input.add_class("error")
-                            error.update(f"[red]• Invalid weekday: {part}. Use mon, tue, wed, thu, fri, sat, sun[/red]")
+                            error.update(
+                                f"[red]• Invalid weekday: {part}. Use mon, tue, wed, thu, fri, sat, sun[/red]"
+                            )
                             return
-                    
+
                     if weekdays:
                         repeat_dict["weekdays"] = sorted(set(weekdays))
-                        
+
             elif repeat_freq == "monthly":
                 monthly_container = self.query_one("#repeat_days_container_monthly", Container)
                 days_input = monthly_container.query_one("#repeat_monthdays", Input)
                 days_text = (days_input.value or "").strip()
-                
+
                 if not days_text:
                     days_input.add_class("error")
-                    error.update("[red]• Monthly repeat requires at least one day (e.g., 1, 15, 30)[/red]")
+                    error.update(
+                        "[red]• Monthly repeat requires at least one day (e.g., 1, 15, 30)[/red]"
+                    )
                     return
                 else:
                     # Parse day numbers: 1-31
@@ -622,7 +637,7 @@ class EventFormScreen(ModalScreen[EventFormResult | None]):
                             days_input.add_class("error")
                             error.update(f"[red]• Invalid day number: {part}[/red]")
                             return
-                    
+
                     if monthdays:
                         repeat_dict["monthdays"] = sorted(set(monthdays))
 
@@ -683,8 +698,9 @@ class EventsPane(Container):
     def on_day_rollover(self, *, today: date) -> None:
         # Process recurring events that need to be cloned
         from logui.usecases.events import process_recurring_events
+
         process_recurring_events(self._repo, today=today)
-        
+
         # Force a complete refresh without keeping old selection
         # (the selected event might be from yesterday and no longer visible)
         self._refresh(keep_id=None, keep_scroll=False, focus=False, today=today)
@@ -712,7 +728,7 @@ class EventsPane(Container):
             except (NoMatches, TooManyMatches, AttributeError):
                 continue
             self._apply_temporal_classes(row, ev, now=now)
-        
+
         # Check if any events should be auto-hidden
         self._check_and_schedule_auto_hide(now)
 
@@ -722,47 +738,52 @@ class EventsPane(Container):
         auto_hide_enabled = False
         try:
             from logui.usecases.config import ConfigRepository
+
             config_repo = getattr(self.app, "_config_repo", None)
             if config_repo and isinstance(config_repo, ConfigRepository):
                 config = config_repo.load()
                 auto_hide_enabled = config.ui.auto_hide_completed
         except Exception:  # noqa: BLE001
             pass
-        
+
         if not auto_hide_enabled:
             self._events_to_hide.clear()
             return
-        
+
         # Find events that just ended and mark them for hiding
         import time
+
         current_time = time.time()
-        
+
         for ev in self._events:
             if ev.start_time is None:
                 continue  # All-day events don't auto-hide
-            
+
             # Skip if already scheduled
             if ev.id in self._events_to_hide:
                 continue
-            
+
             # Calculate end datetime
             from datetime import timedelta
+
             start_dt = datetime.combine(ev.date, ev.start_time)
             if ev.end_time is None:
                 end_dt = start_dt + timedelta(hours=1)
             else:
-                end_dt = datetime.combine(ev.date, ev.end_time) + timedelta(days=int(ev.end_day_offset or 0))
-            
+                end_dt = datetime.combine(ev.date, ev.end_time) + timedelta(
+                    days=int(ev.end_day_offset or 0)
+                )
+
             # If event just ended, schedule for removal
             if end_dt <= now:
                 self._events_to_hide[ev.id] = current_time
-        
+
         # Remove events that have been scheduled for 5+ seconds
         events_to_remove = []
         for event_id, marked_time in list(self._events_to_hide.items()):
             if current_time - marked_time >= 5.0:
                 events_to_remove.append(event_id)
-        
+
         for event_id in events_to_remove:
             self._remove_event_from_list(event_id)
             self._events_to_hide.pop(event_id, None)
@@ -771,27 +792,27 @@ class EventsPane(Container):
         """Remove an event from the ListView without refreshing the entire list."""
         try:
             lv = self.query_one("#events_list", ListView)
-            
+
             # Find the index of the event in _events
             idx = next((i for i, ev in enumerate(self._events) if ev.id == event_id), None)
             if idx is None:
                 return
-            
+
             # Remove from internal list
             self._events.pop(idx)
-            
+
             # Get the ListItem and remove it (like move_child does)
             items = list(lv.query(ListItem))
             if idx < len(items):
                 item_to_remove = items[idx]
                 item_to_remove.remove()
                 self._notify("Event archived")
-            
+
             # If list is now empty, show the empty message
             if not self._events:
                 lv.clear()
                 lv.append(ListItem(Label("(No events) — press n to create")))
-            
+
         except Exception:  # noqa: BLE001
             # Fallback to full refresh if something goes wrong
             self._refresh()
@@ -837,18 +858,19 @@ class EventsPane(Container):
         self._events = [
             ev for ev in self._repo.list_events() if is_visible_in_events_pane(ev, today=today)
         ]
-        
+
         # Check if auto-hide is enabled
         auto_hide_enabled = False
         try:
             from logui.domain.ports.config import ConfigRepository
+
             config_repo = getattr(self.app, "_config_repo", None)
             if config_repo and isinstance(config_repo, ConfigRepository):
                 config = config_repo.load()
                 auto_hide_enabled = config.ui.auto_hide_completed
         except Exception:  # noqa: BLE001
             pass
-        
+
         # Filter out ended events from today if auto_hide is enabled
         if auto_hide_enabled:
             filtered_events: list[Event] = []
@@ -864,11 +886,13 @@ class EventsPane(Container):
                         # No end time, assume 1 hour duration
                         end_dt = datetime.combine(ev.date, ev.start_time) + timedelta(hours=1)
                     else:
-                        end_dt = datetime.combine(ev.date, ev.end_time) + timedelta(days=int(ev.end_day_offset or 0))
-                    
+                        end_dt = datetime.combine(ev.date, ev.end_time) + timedelta(
+                            days=int(ev.end_day_offset or 0)
+                        )
+
                     if now >= end_dt:
                         continue  # Skip this ended event
-                
+
                 filtered_events.append(ev)
             self._events = filtered_events
 
@@ -907,10 +931,10 @@ class EventsPane(Container):
                 _log.debug("Failed restoring events scroll position: %s", e)
         if focus or had_focus:
             lv.focus()
-        
+
         # Update event count in sidebar
         try:
-            if hasattr(self.app, 'update_nav_counts'):
+            if hasattr(self.app, "update_nav_counts"):
                 self.app.update_nav_counts()  # type: ignore[attr-defined]
         except Exception as e:  # noqa: BLE001
             _log.debug("Failed updating nav counts from EventsPane: %s", e)
@@ -1055,17 +1079,17 @@ class EventsPane(Container):
 
         # Update the event in the internal list
         self._events[idx] = updated
-        
+
         # Check if the event should be reordered
         # Create a sorted copy to find new position
         sorted_events = sorted(self._events, key=event_list_sort_key)
         new_idx = next((i for i, ev in enumerate(sorted_events) if ev.id == updated.id), idx)
-        
+
         # If position changed, reorder using move_child
         if new_idx != idx:
             # Update internal list to match sorted order
             self._events = sorted_events
-            
+
             # Move the DOM node to the new position
             if new_idx < idx:
                 # Moving up - insert before the item at new_idx
@@ -1075,11 +1099,11 @@ class EventsPane(Container):
                 # Moving down - insert after the item at new_idx
                 if new_idx < len(items):
                     lv.move_child(item, after=items[new_idx])
-            
+
             lv.index = new_idx
         else:
             lv.index = idx
-        
+
         if focus:
             lv.focus()
 
@@ -1212,7 +1236,7 @@ class EventsPane(Container):
 
             updated = cycle_event_repeat(self._repo, ev.id)
             self._update_selected_item_in_place(updated)
-            
+
             # Show current frequency
             freq = "ninguna"
             if updated.repeat and isinstance(updated.repeat, dict):
@@ -1223,7 +1247,7 @@ class EventsPane(Container):
                     freq = "semanal"
                 elif f == "monthly":
                     freq = "mensual"
-            
+
             self._notify(f"Repetición: {freq}")
         except Exception as e:  # noqa: BLE001
             self._notify(f"Error: {e}")

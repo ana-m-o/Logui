@@ -23,12 +23,15 @@ class TasksTestApp(App[None]):
 
 
 def test_tasks_crud_and_actions(tmp_path) -> None:
-    from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
     from logui.ui.screens.modals import ConfirmScreen
     from logui.ui.screens.task_notes import TaskNotesScreen
     from logui.ui.screens.tasks import TaskFormScreen, TasksPane
 
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
 
     async def _run() -> None:
         app = TasksTestApp(repo)

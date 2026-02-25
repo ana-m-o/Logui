@@ -7,8 +7,8 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
-from logui.domain.errors import ValidationError
 from logui.domain import recurrence as rec
+from logui.domain.errors import ValidationError
 
 
 class TaskStatus(str, Enum):
@@ -154,7 +154,7 @@ class Task:
 
     def occurs_on(self, target: date) -> bool:
         """Check if this task has an occurrence on the target date.
-        
+
         For tasks with due_date, check if the occurrence falls on that date.
         If no due_date, recurring tasks occur every interval starting from created date.
         """

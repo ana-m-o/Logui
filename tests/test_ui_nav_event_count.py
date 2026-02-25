@@ -7,7 +7,8 @@ from datetime import date, time, timedelta
 
 from textual.app import App, ComposeResult
 
-from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
+from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
 from logui.ui.app import NavItem, Sidebar
 from logui.usecases.events import CreateEventInput, create_event
 
@@ -31,22 +32,22 @@ class NavCountTestApp(App[None]):
             for ev in events:
                 # Calculate end day
                 end_day = ev.date.fromordinal(ev.date.toordinal() + int(ev.end_day_offset or 0))
-                
+
                 # Skip events that ended before today
                 if end_day < today:
                     continue
-                
+
                 # Skip events that start after today
                 if ev.date > today:
                     continue
-                
+
                 # For events ending today, check if they've ended (only if they have both start and end time)
                 # All-day events (no start_time) are always counted
                 if end_day == today and ev.start_time is not None and ev.end_time is not None:
                     end_datetime = datetime.combine(end_day, ev.end_time)
                     if datetime.now() >= end_datetime:
                         continue
-                
+
                 count += 1
 
             nav_item = self.query_one("#events", NavItem)
@@ -60,7 +61,9 @@ class NavCountTestApp(App[None]):
 
 def test_nav_shows_event_count_with_one_event(tmp_path) -> None:
     """Test that navigation shows (1) when there's one event today."""
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     today = date.today()
 
     # Create event with end time in the future to ensure it counts
@@ -85,6 +88,7 @@ def test_nav_shows_event_count_with_one_event(tmp_path) -> None:
             label_widget = nav_item.query_one("Static")
             # Use render() to get the text content
             from rich.console import Console
+
             console = Console()
             with console.capture() as capture:
                 console.print(label_widget.render())
@@ -97,7 +101,9 @@ def test_nav_shows_event_count_with_one_event(tmp_path) -> None:
 
 def test_nav_shows_event_count_with_multiple_events(tmp_path) -> None:
     """Test that navigation shows (3) when there are three events today."""
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     today = date.today()
 
     # Use all-day events to avoid time-based filtering issues
@@ -122,6 +128,7 @@ def test_nav_shows_event_count_with_multiple_events(tmp_path) -> None:
             nav_item = app.query_one("#events", NavItem)
             label_widget = nav_item.query_one("Static")
             from rich.console import Console
+
             console = Console()
             with console.capture() as capture:
                 console.print(label_widget.render())
@@ -133,7 +140,9 @@ def test_nav_shows_event_count_with_multiple_events(tmp_path) -> None:
 
 def test_nav_shows_no_count_when_no_events(tmp_path) -> None:
     """Test that navigation shows just 'Events' when there are no events."""
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
 
     async def _run() -> None:
         app = NavCountTestApp(repo)
@@ -145,6 +154,7 @@ def test_nav_shows_no_count_when_no_events(tmp_path) -> None:
             nav_item = app.query_one("#events", NavItem)
             label_widget = nav_item.query_one("Static")
             from rich.console import Console
+
             console = Console()
             with console.capture() as capture:
                 console.print(label_widget.render())
@@ -157,7 +167,9 @@ def test_nav_shows_no_count_when_no_events(tmp_path) -> None:
 
 def test_nav_counts_multiday_event_in_progress(tmp_path) -> None:
     """Test that multi-day events in progress are counted."""
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     today = date.today()
     yesterday = today - timedelta(days=1)
 
@@ -182,9 +194,10 @@ def test_nav_counts_multiday_event_in_progress(tmp_path) -> None:
 
             nav_item = app.query_one("#events", NavItem)
             label_widget = nav_item.query_one("Static")
-            
+
             # Use Rich Console to capture rendered text
             from rich.console import Console
+
             console = Console()
             with console.capture() as capture:
                 console.print(label_widget.render())
@@ -196,7 +209,9 @@ def test_nav_counts_multiday_event_in_progress(tmp_path) -> None:
 
 def test_nav_does_not_count_past_events(tmp_path) -> None:
     """Test that events from yesterday are not counted."""
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     yesterday = date.today() - timedelta(days=1)
 
     create_event(
@@ -218,9 +233,10 @@ def test_nav_does_not_count_past_events(tmp_path) -> None:
 
             nav_item = app.query_one("#events", NavItem)
             label_widget = nav_item.query_one("Static")
-            
+
             # Use Rich Console to capture rendered text
             from rich.console import Console
+
             console = Console()
             with console.capture() as capture:
                 console.print(label_widget.render())
@@ -232,7 +248,9 @@ def test_nav_does_not_count_past_events(tmp_path) -> None:
 
 def test_nav_does_not_count_future_events(tmp_path) -> None:
     """Test that events from tomorrow are not counted."""
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     tomorrow = date.today() + timedelta(days=1)
 
     create_event(
@@ -254,9 +272,10 @@ def test_nav_does_not_count_future_events(tmp_path) -> None:
 
             nav_item = app.query_one("#events", NavItem)
             label_widget = nav_item.query_one("Static")
-            
+
             # Use Rich Console to capture rendered text
             from rich.console import Console
+
             console = Console()
             with console.capture() as capture:
                 console.print(label_widget.render())
@@ -268,7 +287,9 @@ def test_nav_does_not_count_future_events(tmp_path) -> None:
 
 def test_nav_counts_all_day_events(tmp_path) -> None:
     """Test that all-day events today are counted."""
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     today = date.today()
 
     create_event(
@@ -289,9 +310,10 @@ def test_nav_counts_all_day_events(tmp_path) -> None:
 
             nav_item = app.query_one("#events", NavItem)
             label_widget = nav_item.query_one("Static")
-            
+
             # Use Rich Console to capture rendered text
             from rich.console import Console
+
             console = Console()
             with console.capture() as capture:
                 console.print(label_widget.render())

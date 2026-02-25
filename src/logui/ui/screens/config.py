@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from textual import events
@@ -125,19 +125,19 @@ class SimpleTextInputScreen(ModalScreen[TextFormResult | None]):
 
 class MoveDataConfirmationScreen(ModalScreen[bool | None]):
     """Screen to confirm moving data files to new directory."""
-    
+
     BINDINGS = [
         Binding("y", "confirm_yes", "Yes", show=False),
         Binding("n", "confirm_no", "No", show=False),
         Binding("escape", "cancel", "Cancel", show=False),
     ]
-    
+
     def __init__(self, current_dir: str, new_dir: str):
         super().__init__()
         self._current_dir = current_dir
         self._new_dir = new_dir
         self.add_class("modal")
-    
+
     def compose(self) -> ComposeResult:
         yield Container(
             Label("Move existing data?", classes="modal_title"),
@@ -159,7 +159,7 @@ class MoveDataConfirmationScreen(ModalScreen[bool | None]):
             id="move_confirm",
             classes="modal_box modal_w80",
         )
-    
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn_yes":
             self.dismiss(True)
@@ -167,10 +167,10 @@ class MoveDataConfirmationScreen(ModalScreen[bool | None]):
             self.dismiss(False)
         else:
             self.dismiss(None)
-    
+
     def action_confirm_yes(self) -> None:
         self.dismiss(True)
-    
+
     def action_confirm_no(self) -> None:
         self.dismiss(False)
 
@@ -206,15 +206,15 @@ class ConfigPane(Container):
         self._config: AppConfig = AppConfig.default()
 
     def compose(self) -> ComposeResult:
-        help_text = (
-            "  ↑/↓ select option • enter/e edit\n"
-        )
+        help_text = "  ↑/↓ select option • enter/e edit\n"
 
         yield Container(
             Horizontal(Label("Config / Help"), classes="page_header"),
             Static(help_text, classes="page_help", markup=False),
             VerticalScroll(
-                Static(f"Data directory: {self._data_dir_text}", id="data_dir_header", markup=False),
+                Static(
+                    f"Data directory: {self._data_dir_text}", id="data_dir_header", markup=False
+                ),
                 Label("Configuration"),
                 ListView(id="config_list"),
                 Label("Help"),
@@ -266,9 +266,7 @@ class ConfigPane(Container):
         lv.clear()
         lv.append(_ConfigRow(key="data_directory", title="Data directory", value=data_dir))
         lv.append(_ConfigRow(key="editor", title="Editor", value=f"{editor_cmd}  {args_text}"))
-        lv.append(
-            _ConfigRow(key="all_day_notify_time", title="All-day notify time", value=all_day)
-        )
+        lv.append(_ConfigRow(key="all_day_notify_time", title="All-day notify time", value=all_day))
         lv.append(
             _ConfigRow(
                 key="default_notify_minutes",
@@ -332,7 +330,7 @@ class ConfigPane(Container):
                 if not new_dir:
                     self._notify("Directory cannot be empty")
                     return
-                
+
                 # Ask if user wants to move existing data
                 current_dir_str = self._data_dir_text
                 try:
@@ -345,7 +343,7 @@ class ConfigPane(Container):
                 # If the resolved path hasn't changed, treat as cancel: no save, no toast.
                 if current_dir_path == new_dir_path:
                     return
-                
+
                 def _on_move_confirm(move_files: bool | None) -> None:
                     if move_files is None:
                         return
@@ -361,7 +359,7 @@ class ConfigPane(Container):
 
                     # Update displayed value immediately (restart still required).
                     self._data_dir_text = new_dir_expanded
-                    
+
                     if move_files:
                         self._notify(
                             "Data directory updated and files copied. "
@@ -373,14 +371,13 @@ class ConfigPane(Container):
                             "Please restart the app for changes to take effect."
                         )
                     self.call_later(self._refresh)
-                
+
                 # Show confirmation dialog
                 self.app.push_screen(
                     MoveDataConfirmationScreen(
-                        current_dir=current_dir_str,
-                        new_dir=new_dir_expanded
+                        current_dir=current_dir_str, new_dir=new_dir_expanded
                     ),
-                    callback=_on_move_confirm
+                    callback=_on_move_confirm,
                 )
 
             self.app.push_screen(
@@ -410,7 +407,6 @@ class ConfigPane(Container):
                 callback=_on_done,
             )
             return
-
 
         if key == "all_day_notify_time":
             initial = (self._config.notifications.all_day_notify_time or "09:00").strip() or "09:00"
@@ -473,12 +469,13 @@ class ConfigPane(Container):
 
             # Update config directly
             from logui.usecases.config import toggle_auto_hide_completed
+
             toggle_auto_hide_completed(repo=self._repo)
-            
+
             status = "enabled" if new_value else "disabled"
             self._notify(f"Auto-hide completed items {status}")
             self.call_later(self._refresh)
-            
+
             # Trigger refresh in all panes (to show/hide items based on new setting)
             self.call_later(self._trigger_auto_hide_refresh)
             return
@@ -488,24 +485,27 @@ class ConfigPane(Container):
         # Refresh tasks pane
         try:
             from logui.ui.screens.tasks import TasksPane
+
             tasks_pane = self.app.query_one(TasksPane)
             if tasks_pane:
                 tasks_pane._refresh()
         except Exception:  # noqa: BLE001
             pass
-        
+
         # Refresh events pane
         try:
             from logui.ui.screens.events import EventsPane
+
             events_pane = self.app.query_one(EventsPane)
             if events_pane:
                 events_pane._refresh()
         except Exception:  # noqa: BLE001
             pass
-        
+
         # Refresh log pane
         try:
             from logui.ui.screens.log import LogPane
+
             log_pane = self.app.query_one(LogPane)
             if log_pane:
                 log_pane._load_log()

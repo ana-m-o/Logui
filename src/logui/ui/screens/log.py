@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from datetime import date, datetime
-import logging
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, ScrollableContainer
+from textual.containers import Container, Horizontal
 from textual.reactive import reactive
 from textual.widgets import Checkbox, Label, ListItem, ListView, Static
 
@@ -30,22 +30,22 @@ def _escape_rich(text: str) -> str:
 
 def _collect_all_completed_tasks(tasks: list[Task]) -> list[Task]:
     """Collect all completed tasks including subtasks recursively.
-    
+
     Returns a flat list of all completed tasks (DONE status) from the entire tree,
     including both parent tasks and their completed subtasks.
     """
     completed = []
-    
+
     def _traverse(task: Task) -> None:
         if task.status == TaskStatus.DONE:
             completed.append(task)
         # Recursively check subtasks
         for subtask in task.subtasks:
             _traverse(subtask)
-    
+
     for task in tasks:
         _traverse(task)
-    
+
     return completed
 
 
@@ -54,7 +54,12 @@ class LogPane(Container):
 
     show_journal = reactive(False)
 
-    def __init__(self, events_repo: EventRepository, tasks_repo: TaskRepository, journal_repo: JournalRepository):
+    def __init__(
+        self,
+        events_repo: EventRepository,
+        tasks_repo: TaskRepository,
+        journal_repo: JournalRepository,
+    ):
         super().__init__(id="log")
         self._events_repo = events_repo
         self._tasks_repo = tasks_repo
@@ -80,6 +85,7 @@ class LogPane(Container):
         # Load saved show_journal preference
         try:
             from logui.domain.ports.config import ConfigRepository
+
             config_repo = getattr(self.app, "_config_repo", None)
             if config_repo and isinstance(config_repo, ConfigRepository):
                 config = config_repo.load()
@@ -119,6 +125,7 @@ class LogPane(Container):
             try:
                 from logui.domain.ports.config import ConfigRepository
                 from logui.usecases.config import set_show_journal_in_log
+
                 config_repo = getattr(self.app, "_config_repo", None)
                 if config_repo and isinstance(config_repo, ConfigRepository):
                     set_show_journal_in_log(repo=config_repo, enabled=event.value)
@@ -134,11 +141,12 @@ class LogPane(Container):
         old_scroll_y = getattr(log_list, "scroll_y", None)
 
         today = today_local()
-        
+
         # Check if auto-hide is enabled to determine if we show today's items in log
         auto_hide_enabled = False
         try:
             from logui.domain.ports.config import ConfigRepository
+
             config_repo = getattr(self.app, "_config_repo", None)
             if config_repo and isinstance(config_repo, ConfigRepository):
                 config = config_repo.load()
@@ -235,9 +243,7 @@ class LogPane(Container):
         # Render
         log_list.clear()
         if not sorted_dates:
-            log_list.append(
-                ListItem(Static(rendered_groups[0]), classes="log_empty")
-            )
+            log_list.append(ListItem(Static(rendered_groups[0]), classes="log_empty"))
         else:
             for group_text in rendered_groups:
                 log_list.append(
@@ -282,7 +288,7 @@ class LogPane(Container):
         today = today_local()
         start_day = event.date
         end_day = start_day.fromordinal(start_day.toordinal() + int(event.end_day_offset or 0))
-        
+
         is_multi_day = event.end_day_offset and event.end_day_offset > 0
 
         # Only show date for multi-day events (single-day events already have date in header)
@@ -336,9 +342,7 @@ class LogPane(Container):
         if suffix_parts:
             suffix = "  " + "  ".join(suffix_parts)
 
-        title_line = (
-            f"  \\[X] [dim]{completion_time}[/dim] {_escape_rich(task.title)}{suffix}"
-        )
+        title_line = f"  \\[X] [dim]{completion_time}[/dim] {_escape_rich(task.title)}{suffix}"
 
         # Agregar notas si existen
         notes_text = ""
@@ -372,5 +376,5 @@ class LogPane(Container):
         preview = lines[0] if lines else ""
         if len(preview) > 80:
             preview = preview[:77] + "..."
-        
+
         return f"  [dim italic]📓 {_escape_rich(preview)}[/dim italic]"

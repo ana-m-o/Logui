@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 from logui.domain.errors import ValidationError
-from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
+from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
 from logui.usecases.events import (
     CreateEventInput,
     add_event_note,
@@ -17,7 +18,9 @@ from logui.usecases.events import (
 
 
 def test_add_update_delete_event_note(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     now = datetime(2025, 12, 25, 12, 0, tzinfo=timezone.utc)
 
     ev = create_event(repo, CreateEventInput(title="E", day=date(2025, 12, 25)), now=now)
@@ -37,7 +40,9 @@ def test_add_update_delete_event_note(tmp_path: Path) -> None:
 
 
 def test_update_missing_note_raises(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     now = datetime(2025, 12, 25, 12, 0, tzinfo=timezone.utc)
 
     ev = create_event(repo, CreateEventInput(title="E", day=date(2025, 12, 25)), now=now)
@@ -47,7 +52,9 @@ def test_update_missing_note_raises(tmp_path: Path) -> None:
 
 
 def test_add_empty_note_rejected(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     now = datetime(2025, 12, 25, 12, 0, tzinfo=timezone.utc)
 
     ev = create_event(repo, CreateEventInput(title="E", day=date(2025, 12, 25)), now=now)

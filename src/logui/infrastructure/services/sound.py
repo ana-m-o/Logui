@@ -38,6 +38,7 @@ def play_notification_sound(path: Path) -> None:
         if sys.platform.startswith("win"):
             try:
                 import winsound
+
                 winsound.PlaySound(str(p), winsound.SND_FILENAME | winsound.SND_ASYNC)
             except Exception as e:  # noqa: BLE001
                 _log.debug("winsound playback failed: %s", e)
