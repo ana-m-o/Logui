@@ -45,11 +45,12 @@ def fmt_day_short_friendly(day: date, *, today: date) -> str:
 
 
 def fmt_day_compact_friendly(day: date, *, today: date) -> str:
-    """Compact format: `29 Dec` (without year if it's the current year).
+    """Compact format with weekday: `Wed 26 Feb` (without year if it's the current year).
 
-    If the year is later than `today`, includes the year (maintains current Events output).
+    If the year is later than `today`, includes the year.
     """
-    base = f"{day.day} {_EN_MONTHS_SHORT.get(day.month, str(day.month))}"
+    wd = _EN_WEEKDAYS_SHORT.get(day.weekday(), str(day.weekday()))
+    base = f"{wd} {day.day} {_EN_MONTHS_SHORT.get(day.month, str(day.month))}"
     if day.year > today.year:
         return f"{base}, {day.year}"
     return base
