@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import date
 
 from logui.domain.entities.event import Event, EventNote
+from logui.ui.event_temporal import get_display_date_for_event
 
 
 def format_event_notes_block(notes: list[EventNote]) -> str:
@@ -27,7 +28,8 @@ def format_event_row(
     today: date,
     fmt_day_friendly: Callable[[date], str],
 ) -> str:
-    start_day = ev.date
+    # Use the display date (next occurrence for recurring events)
+    start_day = get_display_date_for_event(ev, today=today)
     end_day = start_day.fromordinal(start_day.toordinal() + int(ev.end_day_offset or 0))
 
     day_part = fmt_day_friendly(start_day)

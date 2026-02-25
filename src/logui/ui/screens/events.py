@@ -896,7 +896,7 @@ class EventsPane(Container):
                 filtered_events.append(ev)
             self._events = filtered_events
 
-        self._events.sort(key=event_list_sort_key)
+        self._events.sort(key=lambda ev: event_list_sort_key(ev, today=today))
 
         lv = self.query_one("#events_list", ListView)
         had_focus = lv.has_focus
@@ -957,6 +957,49 @@ class EventsPane(Container):
         for class_name in temporal_classnames(ev, now=now):
             row.add_class(class_name)
 
+    def _format_repeat_text(self, ev: Event) -> str:
+        """Format the repeat indicator text for an event."""
+        if not ev.repeat or not isinstance(ev.repeat, dict):
+            return ""
+
+        freq = str(ev.repeat.get("freq") or "")
+        if not freq or freq == "none":
+            return ""
+
+        if freq == "daily":
+            return " 🔁 daily"
+
+        # Day name abbreviations (3 letters)
+        _WEEKDAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+        if freq == "weekly":
+            weekdays = ev.repeat.get("weekdays")
+            if weekdays and isinstance(weekdays, list) and len(weekdays) > 0:
+                # Sort and format weekday names
+                day_names = [_WEEKDAY_NAMES[day] for day in sorted(weekdays) if 0 <= day < 7]
+                if day_names:
+                    return f" 🔁 {', '.join(day_names)}"
+            # Fallback to base date's weekday if no weekdays specified
+            if ev.date:
+                day_name = ev.date.strftime("%A").lower()[:3]
+                return f" 🔁 {day_name}"
+            return " 🔁 weekly"
+
+        if freq == "monthly":
+            monthdays = ev.repeat.get("monthdays")
+            if monthdays and isinstance(monthdays, list) and len(monthdays) > 0:
+                # Sort and format day numbers
+                day_nums = [str(day) for day in sorted(monthdays) if 1 <= day <= 31]
+                if day_nums:
+                    return f" 🔁 {', '.join(day_nums)}"
+            # Fallback to base date's day if no monthdays specified
+            if ev.date:
+                day_num = ev.date.day
+                return f" 🔁 {day_num}"
+            return " 🔁 monthly"
+
+        return " 🔁"
+
     def _build_list_item(self, ev: Event, *, now: datetime) -> ListItem:
         main = self._format_row(ev)
         notes_block = _format_event_notes_block(ev.notes or [])
@@ -965,32 +1008,13 @@ class EventsPane(Container):
             notes_w.add_class("is-visible")
 
         # Repeat indicator
-        repeat_text = ""
-        if ev.repeat and isinstance(ev.repeat, dict):
-            freq = str(ev.repeat.get("freq") or "")
-            if freq and freq != "none":
-                if freq == "daily":
-                    repeat_text = " 🔁 daily"
-                elif freq == "weekly":
-                    if ev.date:
-                        day_name = ev.date.strftime("%A").lower()
-                        repeat_text = f" 🔁 {day_name}"
-                    else:
-                        repeat_text = " 🔁 weekly"
-                elif freq == "monthly":
-                    if ev.date:
-                        day_num = ev.date.day
-                        repeat_text = f" 🔁 day {day_num}"
-                    else:
-                        repeat_text = " 🔁 monthly"
-                else:
-                    repeat_text = " 🔁"
+        repeat_text = self._format_repeat_text(ev)
         repeat_w = Static(repeat_text, markup=False, classes="event_repeat")
 
         row = Container(
             Horizontal(
                 Static(self._event_notify_glyph(ev), classes="event_notify", markup=False),
-                Label(main, classes="event_row_main", markup=False),
+                Label(main, classes="event_row_main", markup=True),
                 repeat_w,
                 classes="event_row_main_line",
             ),
@@ -1041,26 +1065,7 @@ class EventsPane(Container):
             label.update(self._format_row(updated))
 
             # Update repeat indicator
-            repeat_text = ""
-            if updated.repeat and isinstance(updated.repeat, dict):
-                freq = str(updated.repeat.get("freq") or "")
-                if freq and freq != "none":
-                    if freq == "daily":
-                        repeat_text = " 🔁 daily"
-                    elif freq == "weekly":
-                        if updated.start_date:
-                            day_name = updated.start_date.strftime("%A").lower()
-                            repeat_text = f" 🔁 {day_name}"
-                        else:
-                            repeat_text = " 🔁 weekly"
-                    elif freq == "monthly":
-                        if updated.start_date:
-                            day_num = updated.start_date.day
-                            repeat_text = f" 🔁 day {day_num}"
-                        else:
-                            repeat_text = " 🔁 monthly"
-                    else:
-                        repeat_text = " 🔁"
+            repeat_text = self._format_repeat_text(updated)
             item.query_one(".event_repeat", Static).update(repeat_text)
 
             notes_block = _format_event_notes_block(updated.notes or [])
@@ -1082,7 +1087,7 @@ class EventsPane(Container):
 
         # Check if the event should be reordered
         # Create a sorted copy to find new position
-        sorted_events = sorted(self._events, key=event_list_sort_key)
+        sorted_events = sorted(self._events, key=lambda ev: event_list_sort_key(ev, today=today_local()))
         new_idx = next((i for i, ev in enumerate(sorted_events) if ev.id == updated.id), idx)
 
         # If position changed, reorder using move_child
