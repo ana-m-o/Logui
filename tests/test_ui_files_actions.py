@@ -24,13 +24,16 @@ class FilesTestApp(App[None]):
 
 
 def test_files_create_delete_open(tmp_path: Path, monkeypatch) -> None:
-    from logui.infrastructure.repositories.config_repo_json import JsonConfigRepository
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.config_repo_sqlite import SqliteConfigRepository
     from logui.infrastructure.repositories.files_repo_fs import FsFilesRepository
     from logui.ui.screens.files import NewFileScreen
     from logui.ui.screens.modals import ConfirmScreen
 
     files_repo = FsFilesRepository(tmp_path / "files")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     # Prevent launching a real editor.
     import subprocess

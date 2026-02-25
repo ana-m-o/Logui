@@ -7,8 +7,6 @@ from datetime import time
 from logui.domain.entities.config import (
     AppConfig,
     EditorConfig,
-    NotificationsConfig,
-    UIConfig,
 )
 from logui.domain.ports.config import ConfigRepository
 

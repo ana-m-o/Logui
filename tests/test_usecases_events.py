@@ -7,7 +7,8 @@ from uuid import uuid4
 import pytest
 
 from logui.domain.errors import ValidationError
-from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
+from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
 from logui.usecases.events import (
     CreateEventInput,
     UpdateEventPatch,
@@ -20,7 +21,9 @@ from logui.usecases.events import (
 
 
 def test_list_events_for_date_orders_all_day_first_then_time(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     day = date(2025, 12, 25)
 
     all_day = create_event(
@@ -41,7 +44,9 @@ def test_list_events_for_date_orders_all_day_first_then_time(tmp_path: Path) -> 
 
 
 def test_create_event_defaults_end_time_plus_1h(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     ev = create_event(
         repo,
         CreateEventInput(
@@ -56,7 +61,9 @@ def test_create_event_defaults_end_time_plus_1h(tmp_path: Path) -> None:
 
 
 def test_create_event_defaults_end_time_crosses_midnight(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     ev = create_event(
         repo,
         CreateEventInput(
@@ -71,7 +78,9 @@ def test_create_event_defaults_end_time_crosses_midnight(tmp_path: Path) -> None
 
 
 def test_create_event_sets_default_notify_minutes_before_when_missing(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     ev = create_event(
         repo,
         CreateEventInput(
@@ -88,7 +97,9 @@ def test_create_event_sets_default_notify_minutes_before_when_missing(tmp_path: 
 
 
 def test_toggle_notify_sets_default_minutes_when_enabling(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     ev = create_event(
         repo,
         CreateEventInput(
@@ -106,7 +117,9 @@ def test_toggle_notify_sets_default_minutes_when_enabling(tmp_path: Path) -> Non
 
 
 def test_cycle_repeat_cycles_and_saves_freq_only(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     ev = create_event(repo, CreateEventInput(title="R", day=date(2025, 12, 25)))
 
     ev1 = cycle_event_repeat(repo, ev.id)
@@ -117,7 +130,9 @@ def test_cycle_repeat_cycles_and_saves_freq_only(tmp_path: Path) -> None:
 
 
 def test_update_start_time_preserves_duration_when_end_not_provided(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     ev = create_event(
         repo,
         CreateEventInput(
@@ -136,7 +151,9 @@ def test_update_start_time_preserves_duration_when_end_not_provided(tmp_path: Pa
 
 
 def test_update_start_time_preserves_duration_across_multiple_days(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     ev = create_event(
         repo,
         CreateEventInput(
@@ -156,13 +173,17 @@ def test_update_start_time_preserves_duration_across_multiple_days(tmp_path: Pat
 
 
 def test_update_event_missing_raises(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     with pytest.raises(ValidationError):
         update_event(repo, uuid4(), UpdateEventPatch())
 
 
 def test_update_clearing_start_time_clears_end_time(tmp_path: Path) -> None:
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     ev = create_event(
         repo,
         CreateEventInput(

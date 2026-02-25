@@ -107,11 +107,11 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
         self._dialog_title = title
         self._initial = initial
         self.add_class("modal")
-        
+
         # Extract repeat info
         self._current_freq = "none"
         self._current_days_str = ""
-        
+
         if initial.repeat and isinstance(initial.repeat, dict):
             self._current_freq = initial.repeat.get("freq", "none")
             if self._current_freq == "weekly":
@@ -134,7 +134,7 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
                 initial_days_str = day_abbr[self._initial.due_date.weekday()]
             elif self._current_freq == "monthly":
                 initial_days_str = str(self._initial.due_date.day)
-        
+
         yield Container(
             Label(self._dialog_title, id="task_form_title", classes="modal_title"),
             Static(
@@ -154,7 +154,12 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
                     ),
                     classes="half_col",
                 ),
-                Checkbox("Priority", value=bool(self._initial.priority), id="priority", classes="no_label_col"),
+                Checkbox(
+                    "Priority",
+                    value=bool(self._initial.priority),
+                    id="priority",
+                    classes="no_label_col",
+                ),
                 classes="modal_row",
             ),
             Horizontal(
@@ -246,7 +251,11 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
             if not (days_input.value or "").strip():
                 due_raw = (due_date_input.value or "").strip()
                 try:
-                    due_date = parse_date_flexible(due_raw, today=today_local()) if due_raw else today_local()
+                    due_date = (
+                        parse_date_flexible(due_raw, today=today_local())
+                        if due_raw
+                        else today_local()
+                    )
                 except Exception:  # noqa: BLE001
                     due_date = today_local()
                 day_abbr = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -262,7 +271,11 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
             if not (days_input.value or "").strip():
                 due_raw = (due_date_input.value or "").strip()
                 try:
-                    due_date = parse_date_flexible(due_raw, today=today_local()) if due_raw else today_local()
+                    due_date = (
+                        parse_date_flexible(due_raw, today=today_local())
+                        if due_raw
+                        else today_local()
+                    )
                 except Exception:  # noqa: BLE001
                     due_date = today_local()
                 days_input.value = str(due_date.day)
@@ -285,7 +298,7 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id in {"due_date"}:
             self._update_due_date_hint()
-    
+
     @on(Select.Changed, "#repeat_freq")
     def _on_repeat_freq_changed(self, event: Select.Changed) -> None:
         new_freq = str(event.value) if event.value else "none"
@@ -368,26 +381,31 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
             except ValidationError as e:
                 link_url_input.add_class("error")
                 errors.append(str(e))
-        
+
         # Build repeat dict
         repeat_freq = str(self.query_one("#repeat_freq", Select).value or "none")
         repeat_dict: dict[str, Any] | None = None
-        
+
         if repeat_freq and repeat_freq != "none":
             repeat_dict = {"freq": repeat_freq}
-            
+
             if repeat_freq == "weekly":
                 weekly_container = self.query_one("#repeat_days_container_weekly", Container)
                 days_input = weekly_container.query_one("#repeat_weekdays", Input)
                 days_text = (days_input.value or "").strip().upper()
-                
+
                 if not days_text:
                     errors.append("Weekly repeat requires at least one day (e.g., mon, wed, fri)")
                 else:
                     # Parse day abbreviations: mon, tue, wed, thu, fri, sat, sun
                     day_mapping = {
-                        "MON": 0, "TUE": 1, "WED": 2, "THU": 3,
-                        "FRI": 4, "SAT": 5, "SUN": 6
+                        "MON": 0,
+                        "TUE": 1,
+                        "WED": 2,
+                        "THU": 3,
+                        "FRI": 4,
+                        "SAT": 5,
+                        "SUN": 6,
                     }
                     parts = [p.strip().upper() for p in days_text.split(",")]
                     weekdays = []
@@ -396,17 +414,19 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
                             weekdays.append(day_mapping[part])
                         else:
                             days_input.add_class("error")
-                            errors.append(f"Invalid weekday: {part}. Use mon, tue, wed, thu, fri, sat, sun")
+                            errors.append(
+                                f"Invalid weekday: {part}. Use mon, tue, wed, thu, fri, sat, sun"
+                            )
                             break
-                    
+
                     if weekdays and not errors:
                         repeat_dict["weekdays"] = sorted(set(weekdays))
-                        
+
             elif repeat_freq == "monthly":
                 monthly_container = self.query_one("#repeat_days_container_monthly", Container)
                 days_input = monthly_container.query_one("#repeat_monthdays", Input)
                 days_text = (days_input.value or "").strip()
-                
+
                 if not days_text:
                     errors.append("Monthly repeat requires at least one day (e.g., 1, 15, 30)")
                 else:
@@ -426,7 +446,7 @@ class TaskFormScreen(ModalScreen[TaskFormResult | None]):
                             days_input.add_class("error")
                             errors.append(f"Invalid day number: {part}")
                             break
-                    
+
                     if monthdays and not errors:
                         repeat_dict["monthdays"] = sorted(set(monthdays))
 
@@ -538,18 +558,19 @@ class TasksPane(Container):
             rows.extend(_flatten_task_tree(t, depth=0, parent_id=None))
 
         today = today or today_local()
-        
+
         # Check if auto-hide is enabled
         auto_hide_enabled = False
         try:
             from logui.domain.ports.config import ConfigRepository
+
             config_repo = getattr(self.app, "_config_repo", None)
             if config_repo and isinstance(config_repo, ConfigRepository):
                 config = config_repo.load()
                 auto_hide_enabled = config.ui.auto_hide_completed
         except Exception:  # noqa: BLE001
             pass
-        
+
         # Filter tasks:
         # - Hide DONE tasks from previous days (keep only completed today)
         # - If auto_hide_enabled, also hide DONE tasks from today
@@ -557,7 +578,7 @@ class TasksPane(Container):
         filtered_rows: list[_TaskRow] = []
         for row in rows:
             task = row.task
-            
+
             # Hide DONE tasks based on completion date and auto_hide setting
             if task.status == TaskStatus.DONE:
                 completed = task.completed_at or task.updated_at
@@ -566,7 +587,7 @@ class TasksPane(Container):
                     continue
                 if done_day == today and auto_hide_enabled:
                     continue
-            
+
             # For tasks with recurrence and due_date, check if they're still active
             if task.repeat and isinstance(task.repeat, dict) and task.due_date:
                 freq = task.repeat.get("freq")
@@ -577,6 +598,7 @@ class TasksPane(Container):
                         # Has 'until' date, check if we're past it
                         if isinstance(until, str):
                             from datetime import datetime
+
                             try:
                                 until_date = datetime.fromisoformat(until).date()
                                 if today > until_date:
@@ -586,7 +608,7 @@ class TasksPane(Container):
                         elif isinstance(until, date):
                             if today > until:
                                 continue
-            
+
             filtered_rows.append(row)
 
         self._rows = filtered_rows
@@ -681,7 +703,9 @@ class TasksPane(Container):
                     repeat_text = " 🔁"
         repeat_w = Static(repeat_text, markup=False, classes="task_repeat")
 
-        row_widget = Horizontal(priority, status, title, link_w, repeat_w, due_w, classes="task_list_row")
+        row_widget = Horizontal(
+            priority, status, title, link_w, repeat_w, due_w, classes="task_list_row"
+        )
 
         notes_block = _format_task_notes_block(t.notes or [], depth=depth)
         notes_w = Static(notes_block, classes="task_row_notes", markup=False)
@@ -733,15 +757,15 @@ class TasksPane(Container):
         """Remove a task from the ListView without refreshing the entire list."""
         try:
             lv = self.query_one("#tasks_list", ListView)
-            
+
             # Find the index of the task in _rows
             idx = next((i for i, row in enumerate(self._rows) if row.task.id == task_id), None)
             if idx is None:
                 return
-            
+
             # Remove from internal list
             self._rows.pop(idx)
-            
+
             # Get the ListItem and remove it (like move_child does)
             items = list(lv.query(ListItem))
             if idx < len(items):
@@ -765,12 +789,12 @@ class TasksPane(Container):
                             pass
                 except Exception:  # noqa: BLE001
                     pass
-            
+
             # If list is now empty, show the empty message
             if not self._rows:
                 lv.clear()
                 lv.append(ListItem(Label("(No tasks) — press n to create one")))
-            
+
         except Exception:  # noqa: BLE001
             # Fallback to full refresh if something goes wrong
             self._refresh()
@@ -781,26 +805,28 @@ class TasksPane(Container):
         auto_hide_enabled = False
         try:
             from logui.usecases.config import ConfigRepository
+
             config_repo = getattr(self.app, "_config_repo", None)
             if config_repo and isinstance(config_repo, ConfigRepository):
                 config = config_repo.load()
                 auto_hide_enabled = config.ui.auto_hide_completed
         except Exception:  # noqa: BLE001
             pass
-        
+
         if not auto_hide_enabled:
             self._tasks_to_hide.clear()
             return
-        
+
         # Check tasks that need to be hidden
         import time
+
         now = time.time()
         tasks_to_remove = []
-        
+
         for task_id, marked_time in list(self._tasks_to_hide.items()):
             if now - marked_time >= 5.0:
                 tasks_to_remove.append(task_id)
-        
+
         # Remove tasks
         for task_id in tasks_to_remove:
             try:
@@ -1028,7 +1054,7 @@ class TasksPane(Container):
             try:
                 # Save previous status to check if task was just marked as DONE
                 previous_status = task.status
-                
+
                 updated = update_task(
                     self._repo,
                     task.id,
@@ -1046,21 +1072,27 @@ class TasksPane(Container):
                 updated.repeat = result.repeat
                 self._repo.upsert_task(updated)
                 self._update_selected_item_in_place(updated)
-                
+
                 # Check if auto-hide is enabled and task was just marked as DONE
                 auto_hide_enabled = False
                 try:
                     from logui.usecases.config import ConfigRepository
+
                     config_repo = getattr(self.app, "_config_repo", None)
                     if config_repo and isinstance(config_repo, ConfigRepository):
                         config = config_repo.load()
                         auto_hide_enabled = config.ui.auto_hide_completed
                 except Exception:  # noqa: BLE001
                     pass
-                
+
                 # If marked as DONE and auto-hide is enabled, schedule removal
-                if updated.status == TaskStatus.DONE and previous_status != TaskStatus.DONE and auto_hide_enabled:
+                if (
+                    updated.status == TaskStatus.DONE
+                    and previous_status != TaskStatus.DONE
+                    and auto_hide_enabled
+                ):
                     import time
+
                     task_id = updated.id
                     # Record timestamp for polling-based removal
                     self._tasks_to_hide[task_id] = time.time()
@@ -1096,42 +1128,46 @@ class TasksPane(Container):
             # Check if this is a recurring task that might clone
             will_clone = (
                 task.status != TaskStatus.DONE
-                and task.repeat 
-                and isinstance(task.repeat, dict) 
-                and task.repeat.get("freq") 
+                and task.repeat
+                and isinstance(task.repeat, dict)
+                and task.repeat.get("freq")
                 and task.repeat.get("freq") != "none"
             )
-            
+
             # Check if task is being marked as DONE
             will_be_done = task.status != TaskStatus.DONE
-            
+
             updated = cycle_task_status(self._repo, task.id)
-            
+
             # Check if auto-hide is enabled
             auto_hide_enabled = False
             try:
                 from logui.usecases.config import ConfigRepository
+
                 config_repo = getattr(self.app, "_config_repo", None)
                 if config_repo and isinstance(config_repo, ConfigRepository):
                     config = config_repo.load()
                     auto_hide_enabled = config.ui.auto_hide_completed
             except Exception:  # noqa: BLE001
                 pass
-            
+
             # If marked as DONE and it was recurring, refresh the whole list
             # (a new task may have been cloned)
             if updated.status == TaskStatus.DONE and will_clone:
                 self._refresh(keep_id=str(updated.id))
             else:
                 self._update_selected_item_in_place(updated)
-            
+
             # If marked as DONE and auto-hide is enabled, schedule removal
             if updated.status == TaskStatus.DONE and will_be_done and auto_hide_enabled:
                 task_id = updated.id
                 # Record timestamp for polling-based removal
                 import time
+
                 self._tasks_to_hide[task_id] = time.time()
-                self._notify(f"Task status: {self._status_label(updated.status)} (will archive in a few seconds)")
+                self._notify(
+                    f"Task status: {self._status_label(updated.status)} (will archive in a few seconds)"
+                )
             else:
                 self._notify(f"Task status: {self._status_label(updated.status)}")
         except ValidationError as e:
@@ -1152,20 +1188,20 @@ class TasksPane(Container):
         selected_row = self._selected_row()
         if selected_row is None:
             return
-        
+
         # Subtasks cannot have independent repetition
         if selected_row.depth > 0:
             self._notify("Las subtareas no pueden tener repetición independiente")
             return
-        
+
         task = selected_row.task
-        
+
         try:
             from logui.usecases import cycle_task_repeat
 
             updated = cycle_task_repeat(self._repo, task.id)
             self._update_selected_item_in_place(updated)
-            
+
             # Show current frequency
             freq = "ninguna"
             if updated.repeat and isinstance(updated.repeat, dict):
@@ -1176,7 +1212,7 @@ class TasksPane(Container):
                     freq = "semanal"
                 elif f == "monthly":
                     freq = "mensual"
-            
+
             self._notify(f"Repetición: {freq}")
         except ValidationError as e:
             self._notify(f"Error: {e}")
@@ -1321,17 +1357,11 @@ class TasksPane(Container):
         neighbor_block = self._rows[neighbor_start : neighbor_end + 1]
         if direction == -1:
             self._rows = (
-                self._rows[:neighbor_start]
-                + cur_block
-                + neighbor_block
-                + self._rows[cur_end + 1 :]
+                self._rows[:neighbor_start] + cur_block + neighbor_block + self._rows[cur_end + 1 :]
             )
         else:
             self._rows = (
-                self._rows[:cur_start]
-                + neighbor_block
-                + cur_block
-                + self._rows[neighbor_end + 1 :]
+                self._rows[:cur_start] + neighbor_block + cur_block + self._rows[neighbor_end + 1 :]
             )
 
         # Reorder DOM nodes without unmounting (preserves children, focus, scroll).

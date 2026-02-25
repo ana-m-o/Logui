@@ -13,7 +13,7 @@ _log = logging.getLogger(__name__)
 
 class SQLiteDatabase:
     """Manages SQLite database connection and schema initialization.
-    
+
     This class handles:
     - Database connection lifecycle
     - Schema creation and versioning
@@ -24,7 +24,7 @@ class SQLiteDatabase:
 
     def __init__(self, db_path: Path):
         """Initialize database manager.
-        
+
         Args:
             db_path: Path to the SQLite database file
         """
@@ -38,7 +38,7 @@ class SQLiteDatabase:
 
     def get_connection(self) -> sqlite3.Connection:
         """Get or create a database connection.
-        
+
         Returns:
             Active SQLite connection
         """
@@ -70,13 +70,13 @@ class SQLiteDatabase:
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         """Context manager for database transactions.
-        
+
         Usage:
             with db.transaction() as conn:
                 conn.execute("INSERT INTO ...")
                 conn.execute("UPDATE ...")
             # Auto-commit on success, rollback on exception
-        
+
         Yields:
             Database connection with active transaction
         """
@@ -90,12 +90,12 @@ class SQLiteDatabase:
 
     def init_schema(self) -> None:
         """Initialize database schema if not exists.
-        
+
         Creates all tables, indexes, and constraints.
         This is idempotent - safe to call multiple times.
         """
         conn = self.get_connection()
-        
+
         # Check if schema already exists
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
@@ -108,11 +108,14 @@ class SQLiteDatabase:
                 _log.debug("Database schema already initialized (version %d)", row[0])
                 return
             # TODO: Handle schema migrations if version differs
-            _log.warning("Schema version mismatch. Expected %d, found %s", 
-                        self.SCHEMA_VERSION, row[0] if row else "none")
-        
-        _log.info("Initializing database schema (version %d)", self.SCHEMA_VERSION)
-        
+            _log.warning(
+                "Schema version mismatch. Expected %d, found %s",
+                self.SCHEMA_VERSION,
+                row[0] if row else "none",
+            )
+
+        _log.debug("Initializing database schema (version %d)", self.SCHEMA_VERSION)
+
         with self.transaction() as conn:
             # Schema version table
             conn.execute("""
@@ -120,41 +123,39 @@ class SQLiteDatabase:
                     version INTEGER PRIMARY KEY
                 )
             """)
-            
+
             conn.execute(
-                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
-                (self.SCHEMA_VERSION,)
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)", (self.SCHEMA_VERSION,)
             )
-            
+
             # Config table (singleton)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS config (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
-                    schema_version INTEGER NOT NULL,
                     config_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
             """)
-            
+
             # Events table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
-                    date TEXT NOT NULL,
+                    event_date TEXT NOT NULL,
                     start_time TEXT,
                     end_time TEXT,
                     end_day_offset INTEGER NOT NULL DEFAULT 0,
                     notify INTEGER NOT NULL DEFAULT 1,
                     notify_minutes_before INTEGER,
-                    repeat_json TEXT,
+                    repeat_data TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     CHECK (end_day_offset >= 0),
                     CHECK (end_time IS NULL OR start_time IS NOT NULL)
                 )
             """)
-            
+
             # Event notes table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS event_notes (
@@ -165,29 +166,29 @@ class SQLiteDatabase:
                     FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
                 )
             """)
-            
+
             # Tasks table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS tasks (
                     id TEXT PRIMARY KEY,
-                    parent_task_id TEXT,
-                    order_num INTEGER NOT NULL,
+                    parent_id TEXT,
+                    task_order INTEGER NOT NULL,
                     title TEXT NOT NULL,
                     status TEXT NOT NULL,
                     priority INTEGER NOT NULL DEFAULT 0,
                     due_date TEXT,
                     link_url TEXT,
                     link_text TEXT,
-                    repeat_json TEXT,
+                    repeat_data TEXT,
                     completed_at TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    CHECK (order_num >= 0),
+                    CHECK (task_order >= 0),
                     CHECK (status IN ('todo', 'in_progress', 'postponed', 'in_review', 'done')),
-                    FOREIGN KEY (parent_task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                    FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE
                 )
             """)
-            
+
             # Task notes table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS task_notes (
@@ -198,50 +199,50 @@ class SQLiteDatabase:
                     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
                 )
             """)
-            
+
             # Journal entries table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS journal_entries (
-                    date TEXT PRIMARY KEY,
+                    entry_date TEXT PRIMARY KEY,
                     text TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
             """)
-            
+
             # Create indexes for performance
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_events_date ON events(date)
+                CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date)
             """)
-            
+
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_event_notes_event_id ON event_notes(event_id)
             """)
-            
+
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(order_num, created_at)
+                CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(task_order, created_at)
             """)
-            
+
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id)
+                CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)
             """)
-            
+
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date)
             """)
-            
+
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes(task_id)
             """)
-            
+
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_journal_date ON journal_entries(date DESC)
+                CREATE INDEX IF NOT EXISTS idx_journal_date ON journal_entries(entry_date DESC)
             """)
-        
-        _log.info("Database schema initialized successfully")
+
+        _log.debug("Database schema initialized successfully")
 
     def vacuum(self) -> None:
         """Optimize database by rebuilding it.
-        
+
         This reclaims unused space and defragments the database file.
         Should be called periodically or after large deletions.
         """
@@ -254,7 +255,7 @@ class SQLiteDatabase:
 
     def get_schema_version(self) -> int | None:
         """Get the current schema version from the database.
-        
+
         Returns:
             Schema version number, or None if not initialized
         """

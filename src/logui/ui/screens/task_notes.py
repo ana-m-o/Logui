@@ -191,7 +191,7 @@ class TaskNotesScreen(ModalScreen[None]):
         if idx < 0 or idx >= len(lv):
             return
         # Replace the item at the current index
-        old_item = lv.pop(idx)
+        lv.pop(idx)
         new_item = ListItem(Static(new_text, markup=False))
         lv.mount(new_item, before=idx)
         lv.index = idx
@@ -202,7 +202,7 @@ class TaskNotesScreen(ModalScreen[None]):
         idx = lv.index or 0
         if idx < 0 or idx >= len(lv):
             return
-        
+
         # If this is the last note, do a full refresh to show the "No notes" message
         if len(lv) == 1:
             self._refresh()
@@ -288,28 +288,28 @@ class TaskNotesScreen(ModalScreen[None]):
         note_id = self._selected_note_id()
         if note_id is None:
             return
-        
+
         task = self._get_task()
         if task is None:
             return
-        
+
         lv = self.query_one("#notes_list", ListView)
         idx = lv.index or 0
-        
+
         # Can't move first item up
         if idx == 0:
             return
-        
+
         try:
             if not move_task_note_up(self._repo, self._task_id, note_id, now=utc_now()):
                 return
-            
+
             # Move the DOM node without rebuilding the entire list
             items = list(lv.query(ListItem))
             if idx < len(items) and idx - 1 >= 0:
                 lv.move_child(items[idx], before=items[idx - 1])
                 lv.index = idx - 1
-            
+
             self._notify_changed()
         except Exception as e:  # noqa: BLE001
             self._notify(f"Error: {e}")
@@ -318,28 +318,28 @@ class TaskNotesScreen(ModalScreen[None]):
         note_id = self._selected_note_id()
         if note_id is None:
             return
-        
+
         task = self._get_task()
         if task is None:
             return
-        
+
         lv = self.query_one("#notes_list", ListView)
         idx = lv.index or 0
-        
+
         # Can't move last item down
         if idx >= len(task.notes) - 1:
             return
-        
+
         try:
             if not move_task_note_down(self._repo, self._task_id, note_id, now=utc_now()):
                 return
-            
+
             # Move the DOM node without rebuilding the entire list
             items = list(lv.query(ListItem))
             if idx < len(items) and idx + 1 < len(items):
                 lv.move_child(items[idx], after=items[idx + 1])
                 lv.index = idx + 1
-            
+
             self._notify_changed()
         except Exception as e:  # noqa: BLE001
             self._notify(f"Error: {e}")

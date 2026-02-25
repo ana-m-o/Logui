@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from logui.domain.entities.bootstrap import BootstrapConfig
 from logui.infrastructure.repositories.bootstrap_repo_json import JsonBootstrapRepository
 

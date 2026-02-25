@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 
 from logui.domain.entities.event import Event
-from logui.domain.recurrence import occurs_on_date
 
 
 def is_visible_in_events_pane(ev: Event, *, today: date) -> bool:
@@ -15,7 +14,7 @@ def is_visible_in_events_pane(ev: Event, *, today: date) -> bool:
     - Are multi-day events still ongoing (end date >= today), OR
     - Are recurring events with base date >= today (past recurring events get cloned)
     """
-    
+
     # For events with recurrence, only show if base date is today or later
     # (Past recurring events should have been cloned during rollover)
     if ev.repeat and isinstance(ev.repeat, dict):
@@ -23,13 +22,13 @@ def is_visible_in_events_pane(ev: Event, *, today: date) -> bool:
         if freq and freq != "none":
             # Only show recurring events if their base date is today or in the future
             return ev.date >= today
-    
+
     # For non-recurring events (including events that were recurring but are now cloned),
     # check if the event's end date (considering multi-day offset) is today or later
     end_day = ev.date
     if ev.end_day_offset and ev.end_day_offset > 0:
         end_day = ev.date + timedelta(days=ev.end_day_offset)
-    
+
     return end_day >= today
 
 
@@ -44,7 +43,9 @@ def temporal_classnames(ev: Event, *, now: datetime) -> set[str]:
     elif ev.end_time is None:
         end_dt = start_dt + timedelta(hours=1)
     else:
-        end_dt = datetime.combine(ev.date, ev.end_time) + timedelta(days=int(ev.end_day_offset or 0))
+        end_dt = datetime.combine(ev.date, ev.end_time) + timedelta(
+            days=int(ev.end_day_offset or 0)
+        )
 
     classes: set[str] = set()
     if end_dt <= now:

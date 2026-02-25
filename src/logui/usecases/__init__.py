@@ -48,7 +48,6 @@ __all__ = [
     "list_events_for_date",
     "toggle_event_notify",
     "cycle_event_repeat",
-
     "CreateTaskInput",
     "UpdateTaskPatch",
     "create_task",

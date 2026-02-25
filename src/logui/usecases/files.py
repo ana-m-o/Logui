@@ -10,7 +10,6 @@ from logui.domain.entities.config import EditorConfig
 from logui.domain.errors import ValidationError
 from logui.domain.ports.files import FilesRepository
 
-
 # GUI editors that launch in separate windows (non-blocking)
 # Add editors here to avoid app suspend/resume flicker
 GUI_EDITORS = {

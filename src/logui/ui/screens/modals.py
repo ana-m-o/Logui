@@ -37,4 +37,3 @@ class ConfirmScreen(ModalScreen[bool]):
 
     def action_no(self) -> None:
         self.dismiss(False)
-

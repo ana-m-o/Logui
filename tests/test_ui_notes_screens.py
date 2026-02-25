@@ -43,11 +43,14 @@ def _list_view_texts(lv: ListView) -> list[str]:
 
 def test_event_notes_screen_new_edit_delete(tmp_path) -> None:
     from logui.domain.entities.event import Event
-    from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
     from logui.ui.screens.event_notes import EventNotesScreen, NoteEditorScreen
     from logui.ui.screens.modals import ConfirmScreen
 
-    repo = JsonEventRepository(tmp_path / "events.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteEventRepository(db)
     event = Event.create("Event", day=date.today())
     repo.upsert_event(event)
 
@@ -123,11 +126,14 @@ def test_event_notes_screen_new_edit_delete(tmp_path) -> None:
 
 def test_task_notes_screen_new_edit_delete(tmp_path) -> None:
     from logui.domain.entities.task import Task
-    from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
     from logui.ui.screens.modals import ConfirmScreen
     from logui.ui.screens.task_notes import NoteEditorScreen, TaskNotesScreen
 
-    repo = JsonTaskRepository(tmp_path / "tasks.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
     task = Task.create("Task", order=0)
     repo.upsert_task(task)
 

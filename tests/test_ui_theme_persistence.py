@@ -1,4 +1,5 @@
 """Tests for theme persistence functionality."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,7 +8,8 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
-from logui.infrastructure.repositories.config_repo_json import JsonConfigRepository
+from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+from logui.infrastructure.repositories.config_repo_sqlite import SqliteConfigRepository
 
 
 class ThemeTestApp(App[None]):
@@ -19,7 +21,7 @@ class ThemeTestApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Static("theme test", id="root")
-    
+
     def on_mount(self) -> None:
         """Load saved theme on mount."""
         config = self._config_repo.load()
@@ -28,10 +30,11 @@ class ThemeTestApp(App[None]):
                 self.theme = config.ui.theme
             except Exception:  # noqa: BLE001
                 pass
-    
+
     def watch_theme(self, theme_name: str) -> None:
         """Watch theme changes and persist them to config."""
         from logui.usecases.config import set_theme
+
         try:
             set_theme(repo=self._config_repo, theme_name=theme_name)
         except Exception:  # noqa: BLE001
@@ -40,7 +43,9 @@ class ThemeTestApp(App[None]):
 
 def test_theme_is_persisted_on_change(tmp_path: Path) -> None:
     """When the user changes theme via command palette, it should be saved to config."""
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     async def _run() -> None:
         app = ThemeTestApp(config_repo)
@@ -60,10 +65,13 @@ def test_theme_is_persisted_on_change(tmp_path: Path) -> None:
 
 def test_theme_is_loaded_on_startup(tmp_path: Path) -> None:
     """When app starts, it should load the previously saved theme."""
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     # Save a theme preference
     from logui.usecases.config import set_theme
+
     set_theme(repo=config_repo, theme_name="gruvbox")
 
     async def _run() -> None:
@@ -79,7 +87,9 @@ def test_theme_is_loaded_on_startup(tmp_path: Path) -> None:
 
 def test_theme_changes_are_tracked(tmp_path: Path) -> None:
     """Multiple theme changes should be persisted correctly."""
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     async def _run() -> None:
         app = ThemeTestApp(config_repo)
@@ -104,7 +114,9 @@ def test_theme_changes_are_tracked(tmp_path: Path) -> None:
 
 def test_default_theme_is_none(tmp_path: Path) -> None:
     """When no theme has been set, config should have theme=None."""
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
-    
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
+
     config = config_repo.load()
     assert config.ui.theme is None

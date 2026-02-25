@@ -84,7 +84,7 @@ def _find_task_in_tree(
 
 
 def _find_root_and_task(repo: TaskRepository, task_id: UUID) -> tuple[Task, Task, Task | None]:
-    roots = [ _clone_task(t) for t in repo.list_tasks() ]
+    roots = [_clone_task(t) for t in repo.list_tasks()]
     for root in roots:
         found = _find_task_in_tree(root, task_id)
         if found is not None:
@@ -227,13 +227,13 @@ def cycle_task_status(
     if next_status == TaskStatus.DONE and prev_status != TaskStatus.DONE:
         actual_now = now or utc_now()
         task.completed_at = actual_now
-        
+
         # If task has recurrence but no due_date, auto-assign due_date to today
         if task.repeat and isinstance(task.repeat, dict) and task.due_date is None:
             freq = task.repeat.get("freq")
             if freq and freq != "none":
                 task.due_date = actual_now.astimezone().date()
-        
+
         # If task has recurrence and due_date, clone it for the next occurrence
         if task.repeat and isinstance(task.repeat, dict) and task.due_date:
             freq = task.repeat.get("freq")
@@ -250,7 +250,7 @@ def cycle_task_status(
                     )
                     new_task.repeat = dict(task.repeat)
                     new_task.notes = list(task.notes)
-                    
+
                     # Clone subtasks recursively
                     for subtask in task.subtasks:
                         new_subtask = Task.create(
@@ -262,10 +262,10 @@ def cycle_task_status(
                         )
                         new_subtask.notes = list(subtask.notes)
                         new_task.subtasks.append(new_subtask)
-                    
+
                     # Calculate order: place after the current task
                     new_task.order = task.order + 0.5
-                    
+
                     # Add to parent or root level
                     if parent is not None:
                         parent.subtasks.append(new_task)
@@ -279,10 +279,10 @@ def cycle_task_status(
                         task.touch(now=now)
                         root.touch(now=now)
                         return task
-        
+
     elif next_status != TaskStatus.DONE and prev_status == TaskStatus.DONE:
         task.completed_at = None
-    
+
     task._validate_invariants()  # noqa: SLF001
     task.touch(now=now)
     root.touch(now=now)
@@ -315,30 +315,30 @@ def cycle_task_repeat(
     now: datetime | None = None,
 ) -> Task:
     """Cycle through repeat frequencies for a task: none → daily → weekly → monthly.
-    
+
     If activating repetition (from 'none' to any frequency) and the task has no due_date,
     automatically assigns due_date to today.
     """
     root, task, parent = _find_root_and_task(repo, task_id)
-    
+
     current = "none"
     if task.repeat and isinstance(task.repeat, dict) and task.repeat.get("freq"):
         current = str(task.repeat.get("freq"))
-    
+
     try:
         idx = _REPEAT_CYCLE.index(current)
     except ValueError:
         idx = 0
-    
+
     next_freq = _REPEAT_CYCLE[(idx + 1) % len(_REPEAT_CYCLE)]
-    
+
     # If activating repetition (from "none" to any frequency) and task has no due_date,
     # automatically assign due_date to today
     new_due_date = task.due_date
     if current == "none" and next_freq != "none" and task.due_date is None:
         actual_now = now or datetime.now(tz=timezone.utc)
         new_due_date = actual_now.astimezone().date()
-    
+
     # Create a new Task instance with updated repeat field
     updated = Task(
         id=task.id,
@@ -355,18 +355,16 @@ def cycle_task_repeat(
         created_at=task.created_at,
         updated_at=task.updated_at,
     )
-    
+
     updated.touch(now=now)
-    
+
     # If this is a root task, just save it
     if parent is None:
         repo.upsert_task(updated)
         return updated
-    
+
     # If it's a subtask, replace in parent's subtasks list
-    parent.subtasks = [
-        updated if t.id == task_id else t for t in parent.subtasks
-    ]
+    parent.subtasks = [updated if t.id == task_id else t for t in parent.subtasks]
     parent.touch(now=now)
     root.touch(now=now)
     repo.upsert_task(root)
@@ -584,18 +582,18 @@ def _move_task_note(
         raise ValueError("direction must be -1 or +1")
 
     root, task, _parent = _find_root_and_task(repo, task_id)
-    
+
     idx = next((i for i, n in enumerate(task.notes) if n.id == note_id), None)
     if idx is None:
         return False
-    
+
     swap_idx = idx + direction
     if swap_idx < 0 or swap_idx >= len(task.notes):
         return False
-    
+
     # Swap the notes
     task.notes[idx], task.notes[swap_idx] = task.notes[swap_idx], task.notes[idx]
-    
+
     task.touch(now=now)
     root.touch(now=now)
     repo.upsert_task(root)

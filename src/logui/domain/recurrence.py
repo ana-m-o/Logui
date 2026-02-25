@@ -8,26 +8,26 @@ from typing import Any
 
 def occurs_on_date(base_date: date, repeat: dict[str, Any] | None, target: date) -> bool:
     """Check if a recurring item has an occurrence on the target date.
-    
+
     Args:
         base_date: The original/first occurrence date
         repeat: Recurrence configuration (freq, interval, until, count)
         target: Date to check for an occurrence
-    
+
     Returns:
         True if there's an occurrence on target date, False otherwise
     """
     if repeat is None or not isinstance(repeat, dict):
         return base_date == target
-    
+
     freq = repeat.get("freq")
     if not freq or freq == "none":
         return base_date == target
-    
+
     # Can't occur before the base date
     if target < base_date:
         return False
-    
+
     # Check "until" constraint
     until_str = repeat.get("until")
     if until_str:
@@ -37,16 +37,16 @@ def occurs_on_date(base_date: date, repeat: dict[str, Any] | None, target: date)
                 return False
         except (ValueError, TypeError):
             pass
-    
+
     interval = int(repeat.get("interval", 1))
     if interval < 1:
         interval = 1
-    
+
     delta = (target - base_date).days
-    
+
     if freq == "daily":
         return delta % interval == 0
-    
+
     elif freq == "weekly":
         # Check if target falls on one of the specified weekdays
         weekdays = repeat.get("weekdays")
@@ -59,25 +59,26 @@ def occurs_on_date(base_date: date, repeat: dict[str, Any] | None, target: date)
             # If no weekdays specified, use base_date's weekday
             if target.weekday() != base_date.weekday():
                 return False
-        
+
         # Check interval (every N weeks)
         weeks_diff = delta // 7
         return weeks_diff % interval == 0
-    
+
     elif freq == "monthly":
         # Monthly: same day of month, N months apart
         # If the base day doesn't exist in target month, use last day of target month
         months_diff = (target.year - base_date.year) * 12 + (target.month - base_date.month)
         if months_diff % interval != 0:
             return False
-        
+
         # Check if target day matches any of the specified monthdays
         monthdays = repeat.get("monthdays")
         if monthdays and isinstance(monthdays, list):
             # monthdays is a list of day numbers (1-31)
             from calendar import monthrange
+
             _, last_day_of_target = monthrange(target.year, target.month)
-            
+
             # Check if target.day matches any of the specified days
             for day in monthdays:
                 if day <= last_day_of_target:
@@ -94,15 +95,16 @@ def occurs_on_date(base_date: date, repeat: dict[str, Any] | None, target: date)
             # If base_date.day exists in target month, must match exactly
             # If base_date.day doesn't exist in target month, target must be last day of month
             from calendar import monthrange
+
             _, last_day_of_target = monthrange(target.year, target.month)
-            
+
             if base_date.day <= last_day_of_target:
                 # Day exists in target month, must match exactly
                 return target.day == base_date.day
             else:
                 # Day doesn't exist in target month, must be last day
                 return target.day == last_day_of_target
-    
+
     return False
 
 
@@ -112,26 +114,26 @@ def next_occurrence(
     after: date,
 ) -> date | None:
     """Calculate the next occurrence after a given date.
-    
+
     Args:
         base_date: The original/first occurrence date
         repeat: Recurrence configuration
         after: Find the next occurrence after this date
-    
+
     Returns:
         Next occurrence date, or None if no more occurrences
     """
     if repeat is None or not isinstance(repeat, dict):
         return None
-    
+
     freq = repeat.get("freq")
     if not freq or freq == "none":
         return None
-    
+
     interval = int(repeat.get("interval", 1))
     if interval < 1:
         interval = 1
-    
+
     # Check "until" constraint
     until: date | None = None
     until_str = repeat.get("until")
@@ -140,23 +142,23 @@ def next_occurrence(
             until = date.fromisoformat(until_str) if isinstance(until_str, str) else until_str
         except (ValueError, TypeError):
             pass
-    
+
     # Start searching from the day after "after"
     candidate = after + timedelta(days=1)
-    
+
     # Avoid infinite loops: limit search to 5 years
     max_date = after + timedelta(days=365 * 5)
-    
+
     while candidate <= max_date:
         if until and candidate > until:
             return None
-        
+
         if occurs_on_date(base_date, repeat, candidate):
             return candidate
-        
+
         # Move to next day (brute force but simple and correct)
         candidate += timedelta(days=1)
-    
+
     return None
 
 
@@ -168,14 +170,14 @@ def list_occurrences(
     max_count: int = 100,
 ) -> list[date]:
     """List all occurrences within a date range.
-    
+
     Args:
         base_date: The original/first occurrence date
         repeat: Recurrence configuration
         start: Range start (inclusive)
         end: Range end (inclusive)
         max_count: Maximum number of occurrences to return
-    
+
     Returns:
         List of occurrence dates within the range
     """
@@ -183,21 +185,21 @@ def list_occurrences(
         if start <= base_date <= end:
             return [base_date]
         return []
-    
+
     freq = repeat.get("freq")
     if not freq or freq == "none":
         if start <= base_date <= end:
             return [base_date]
         return []
-    
+
     occurrences: list[date] = []
     current = max(base_date, start)
-    
+
     while current <= end and len(occurrences) < max_count:
         if occurs_on_date(base_date, repeat, current):
             occurrences.append(current)
-        
+
         # Move to next day
         current += timedelta(days=1)
-    
+
     return occurrences

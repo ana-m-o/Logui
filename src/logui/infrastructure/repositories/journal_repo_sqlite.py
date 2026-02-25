@@ -13,13 +13,13 @@ _log = logging.getLogger(__name__)
 
 class SqliteJournalRepository(JournalRepository):
     """Journal repository using SQLite backend.
-    
+
     Stores journal entries with date as primary key.
     """
 
     def __init__(self, db: SQLiteDatabase):
         """Initialize repository.
-        
+
         Args:
             db: SQLite database manager
         """
@@ -27,18 +27,18 @@ class SqliteJournalRepository(JournalRepository):
 
     def list_entry_days(self) -> list[date]:
         """List all days with journal entries.
-        
+
         Returns:
             List of dates with entries, sorted descending (newest first)
         """
         try:
             conn = self._db.get_connection()
             cursor = conn.execute("""
-                SELECT date FROM journal_entries
+                SELECT entry_date FROM journal_entries
                 WHERE text IS NOT NULL AND text != ''
-                ORDER BY date DESC
+                ORDER BY entry_date DESC
             """)
-            
+
             days: list[date] = []
             for row in cursor.fetchall():
                 try:
@@ -46,7 +46,7 @@ class SqliteJournalRepository(JournalRepository):
                 except (ValueError, TypeError) as e:
                     _log.warning("Invalid date in journal_entries: %s (%s)", row[0], e)
                     continue
-            
+
             return days
         except Exception as e:  # noqa: BLE001
             _log.error("Failed to list journal entry days: %s", e)
@@ -54,20 +54,23 @@ class SqliteJournalRepository(JournalRepository):
 
     def get_entry(self, day: date) -> str | None:
         """Get journal entry for a specific day.
-        
+
         Args:
             day: Date to get entry for
-        
+
         Returns:
             Entry text, or None if no entry exists
         """
         try:
             conn = self._db.get_connection()
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT text FROM journal_entries
-                WHERE date = ?
-            """, (day.isoformat(),))
-            
+                WHERE entry_date = ?
+            """,
+                (day.isoformat(),),
+            )
+
             row = cursor.fetchone()
             return row[0] if row else None
         except Exception as e:  # noqa: BLE001
@@ -76,38 +79,44 @@ class SqliteJournalRepository(JournalRepository):
 
     def set_entry(self, day: date, text: str) -> None:
         """Set journal entry for a specific day.
-        
+
         Args:
             day: Date to set entry for
             text: Entry text (can be empty string)
         """
         cleaned = text or ""
         updated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        
+
         with self._db.transaction() as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO journal_entries (date, text, updated_at)
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO journal_entries (entry_date, text, updated_at)
                 VALUES (?, ?, ?)
-            """, (day.isoformat(), cleaned, updated_at))
-        
+            """,
+                (day.isoformat(), cleaned, updated_at),
+            )
+
         _log.debug("Journal entry saved for %s", day)
 
     def delete_entry(self, day: date) -> bool:
         """Delete journal entry for a specific day.
-        
+
         Args:
             day: Date to delete entry for
-        
+
         Returns:
             True if entry was deleted, False if no entry existed
         """
         with self._db.transaction() as conn:
-            cursor = conn.execute("""
-                DELETE FROM journal_entries WHERE date = ?
-            """, (day.isoformat(),))
+            cursor = conn.execute(
+                """
+                DELETE FROM journal_entries WHERE entry_date = ?
+            """,
+                (day.isoformat(),),
+            )
             deleted = cursor.rowcount > 0
-        
+
         if deleted:
             _log.debug("Journal entry deleted for %s", day)
-        
+
         return deleted

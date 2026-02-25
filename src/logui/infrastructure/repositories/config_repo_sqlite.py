@@ -15,13 +15,13 @@ _log = logging.getLogger(__name__)
 
 class SqliteConfigRepository(ConfigRepository):
     """Config repository using SQLite backend.
-    
+
     Stores AppConfig as a JSON blob in a singleton table row.
     """
 
     def __init__(self, db: SQLiteDatabase):
         """Initialize repository.
-        
+
         Args:
             db: SQLite database manager
         """
@@ -29,21 +29,19 @@ class SqliteConfigRepository(ConfigRepository):
 
     def load(self) -> AppConfig:
         """Load application configuration.
-        
+
         Returns:
             AppConfig instance, or default config if not found
         """
         try:
             conn = self._db.get_connection()
-            cursor = conn.execute(
-                "SELECT config_json FROM config WHERE id = 1"
-            )
+            cursor = conn.execute("SELECT config_json FROM config WHERE id = 1")
             row = cursor.fetchone()
-            
+
             if not row:
                 _log.debug("No config found in database, returning default")
                 return AppConfig.default()
-            
+
             config_dict = json.loads(row[0])
             return AppConfig.from_dict(config_dict)
         except json.JSONDecodeError as e:
@@ -55,17 +53,20 @@ class SqliteConfigRepository(ConfigRepository):
 
     def save(self, config: AppConfig) -> None:
         """Save application configuration.
-        
+
         Args:
             config: AppConfig to persist
         """
         config_json = json.dumps(config.to_dict(), ensure_ascii=False, sort_keys=False)
         updated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        
+
         with self._db.transaction() as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO config (id, schema_version, config_json, updated_at)
-                VALUES (1, ?, ?, ?)
-            """, (config.schema_version, config_json, updated_at))
-        
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO config (id, config_json, updated_at)
+                VALUES (1, ?, ?)
+            """,
+                (config_json, updated_at),
+            )
+
         _log.debug("Config saved successfully")

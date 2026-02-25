@@ -79,14 +79,14 @@ class NewFileScreen(ModalScreen[NewFileResult | None]):
     def _submit(self) -> None:
         error = self.query_one("#new_file_error", Static)
         error.update("")
-        
+
         # Clear all error classes first
         for input_widget in self.query(Input):
             input_widget.remove_class("error")
-        
+
         new_file_input = self.query_one("#new_file_name", Input)
         name = (new_file_input.value or "").strip()
-        
+
         if not name:
             new_file_input.add_class("error")
             error.update("[red]• El nombre no puede estar vacío[/red]")
@@ -377,9 +377,7 @@ class FilesPane(Container):
                         _log.debug("Failed removing placeholder from files list: %s", e)
 
             current_by_name: dict[str, FileItem] = {
-                item.filename: item
-                for item in lv.children
-                if isinstance(item, FileItem)
+                item.filename: item for item in lv.children if isinstance(item, FileItem)
             }
 
             previous_item: FileItem | None = None
@@ -501,11 +499,11 @@ class FilesPane(Container):
                 self._notify(msg)
 
             argv = build_editor_argv(resolved, path)
-            
+
             # Determine if this is a GUI editor that launches in a separate window
             # vs a terminal editor that needs exclusive terminal access.
             is_gui = is_gui_editor(resolved.command)
-            
+
             # Important: Textual runs the terminal in raw mode and captures input.
             # For TUI editors (nano/vim/etc.) we must suspend the app and run them
             # in the foreground. For GUI editors we launch them without suspending.

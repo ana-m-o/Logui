@@ -10,10 +10,11 @@ from textual.app import App, ComposeResult
 from logui.domain.entities.config import AppConfig, UIConfig
 from logui.domain.entities.event import Event
 from logui.domain.entities.task import Task, TaskStatus
-from logui.infrastructure.repositories.config_repo_json import JsonConfigRepository
-from logui.infrastructure.repositories.events_repo_json import JsonEventRepository
-from logui.infrastructure.repositories.journal_repo_json import JsonJournalRepository
-from logui.infrastructure.repositories.tasks_repo_json import JsonTaskRepository
+from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+from logui.infrastructure.repositories.config_repo_sqlite import SqliteConfigRepository
+from logui.infrastructure.repositories.events_repo_sqlite import SqliteEventRepository
+from logui.infrastructure.repositories.journal_repo_sqlite import SqliteJournalRepository
+from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
 from logui.ui.screens.events import EventsPane
 from logui.ui.screens.log import LogPane
 from logui.ui.screens.tasks import TasksPane
@@ -30,7 +31,10 @@ class AutoHideTestApp(App[None]):
         # Create a dummy journal_repo for LogPane (not used in these tests)
         import tempfile
         from pathlib import Path
-        self._journal_repo = JsonJournalRepository(Path(tempfile.gettempdir()) / "dummy_journal.json")
+
+        db = SQLiteDatabase(Path(tempfile.gettempdir()) / "logui.db")
+        db.init_schema()
+        self._journal_repo = SqliteJournalRepository(db)
 
     def compose(self) -> ComposeResult:
         yield TasksPane(self._tasks_repo)
@@ -40,9 +44,15 @@ class AutoHideTestApp(App[None]):
 
 def test_tasks_auto_hide_filters_completed_today(tmp_path) -> None:
     """When auto_hide is enabled, completed tasks from today should not appear."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     # Create two tasks: one DONE, one TODO
     task_done = Task.create(
@@ -76,9 +86,15 @@ def test_tasks_auto_hide_filters_completed_today(tmp_path) -> None:
 
 def test_tasks_auto_hide_disabled_shows_completed_today(tmp_path) -> None:
     """When auto_hide is disabled, completed tasks from today should appear."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     # Create two tasks: one DONE, one TODO
     task_done = Task.create(
@@ -111,9 +127,15 @@ def test_tasks_auto_hide_disabled_shows_completed_today(tmp_path) -> None:
 
 def test_tasks_old_completed_always_hidden(tmp_path) -> None:
     """Completed tasks from previous days should always be hidden."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     # Create a task completed yesterday
     yesterday = datetime.now() - timedelta(days=1)
@@ -148,9 +170,15 @@ def test_tasks_old_completed_always_hidden(tmp_path) -> None:
 
 def test_events_auto_hide_filters_ended_today(tmp_path) -> None:
     """When auto_hide is enabled, ended events from today should not appear."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     today = date.today()
     now = datetime.now()
@@ -191,9 +219,15 @@ def test_events_auto_hide_filters_ended_today(tmp_path) -> None:
 
 def test_events_auto_hide_disabled_shows_ended_today(tmp_path) -> None:
     """When auto_hide is disabled, ended events from today should appear."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     today = date.today()
     now = datetime.now()
@@ -226,9 +260,15 @@ def test_events_auto_hide_disabled_shows_ended_today(tmp_path) -> None:
 
 def test_log_includes_today_when_auto_hide_enabled(tmp_path) -> None:
     """When auto_hide is enabled, log should include completed items from today."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     # Create a task completed today
     task_done = Task.create(
@@ -258,9 +298,15 @@ def test_log_includes_today_when_auto_hide_enabled(tmp_path) -> None:
 
 def test_log_excludes_today_when_auto_hide_disabled(tmp_path) -> None:
     """When auto_hide is disabled, log should NOT include items from today."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     # Create a task completed today
     task_done = Task.create(
@@ -292,9 +338,15 @@ def test_log_excludes_today_when_auto_hide_disabled(tmp_path) -> None:
 
 def test_all_day_events_never_filtered_by_auto_hide(tmp_path) -> None:
     """All-day events should never be filtered by auto_hide (they don't end until midnight)."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     today = date.today()
 
@@ -327,9 +379,15 @@ def test_all_day_events_never_filtered_by_auto_hide(tmp_path) -> None:
 def test_task_not_archived_if_reopened_before_auto_hide_timeout(tmp_path) -> None:
     """If a task is marked DONE then returned to TODO before the auto-hide timeout,
     it must not be archived."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     # Create a task that is one step before DONE so a single cycle reaches DONE
     task = Task.create(title="Flaky task", status=TaskStatus.IN_REVIEW)
@@ -358,6 +416,7 @@ def test_task_not_archived_if_reopened_before_auto_hide_timeout(tmp_path) -> Non
 
             # Force the recorded timestamp to be older than the threshold to simulate time passing
             import time
+
             for k in list(tasks_pane._tasks_to_hide.keys()):
                 tasks_pane._tasks_to_hide[k] = time.time() - 10.0
 
@@ -373,9 +432,15 @@ def test_task_not_archived_if_reopened_before_auto_hide_timeout(tmp_path) -> Non
 
 def test_archived_tasks_appear_in_log(tmp_path) -> None:
     """Tasks that are auto-hidden from the tasks list should still appear in the Log."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     # Create a task one step before DONE so a single cycle reaches DONE
     task = Task.create(title="To be archived", status=TaskStatus.IN_REVIEW)
@@ -404,6 +469,7 @@ def test_archived_tasks_appear_in_log(tmp_path) -> None:
 
             # Force the recorded timestamp to be older than the threshold to simulate time passing
             import time
+
             for k in list(tasks_pane._tasks_to_hide.keys()):
                 tasks_pane._tasks_to_hide[k] = time.time() - 10.0
 
@@ -419,6 +485,7 @@ def test_archived_tasks_appear_in_log(tmp_path) -> None:
             log_pane = app.query_one(LogsPane) if False else app.query_one("#log")
             # Prefer the actual LogPane instance
             from logui.ui.screens.log import LogPane
+
             log_pane = app.query_one(LogPane)
             log_pane._load_log()
 
@@ -436,9 +503,15 @@ def test_archived_tasks_appear_in_log(tmp_path) -> None:
 
 def test_task_form_edit_marks_done_triggers_auto_hide(tmp_path) -> None:
     """When editing a task via form and marking it as DONE, auto-hide should trigger."""
-    tasks_repo = JsonTaskRepository(tmp_path / "tasks.json")
-    events_repo = JsonEventRepository(tmp_path / "events.json")
-    config_repo = JsonConfigRepository(tmp_path / "config.json")
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    tasks_repo = SqliteTaskRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    events_repo = SqliteEventRepository(db)
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    config_repo = SqliteConfigRepository(db)
 
     # Create a task in TODO status
     task = Task.create(title="Task to complete via form", status=TaskStatus.TODO)
@@ -466,11 +539,13 @@ def test_task_form_edit_marks_done_triggers_auto_hide(tmp_path) -> None:
 
             # Verify we're on the form screen
             from logui.ui.screens.tasks import TaskFormScreen
+
             assert isinstance(app.screen, TaskFormScreen)
 
             # Change status to DONE in the form
             form = app.screen
             from textual.widgets import Select
+
             status_select = form.query_one("#status", Select)
             status_select.value = "done"
 
@@ -488,6 +563,7 @@ def test_task_form_edit_marks_done_triggers_auto_hide(tmp_path) -> None:
 
             # Force the recorded timestamp to be older than the threshold
             import time
+
             for k in list(tasks_pane._tasks_to_hide.keys()):
                 tasks_pane._tasks_to_hide[k] = time.time() - 10.0
 

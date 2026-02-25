@@ -268,19 +268,19 @@ def _move_event_note(
     ev = repo.get_event(event_id)
     if ev is None:
         raise ValidationError("Event not found")
-    
+
     idx = next((i for i, n in enumerate(ev.notes) if n.id == note_id), None)
     if idx is None:
         raise ValidationError("Note not found")
-    
+
     swap_idx = idx + direction
     if swap_idx < 0 or swap_idx >= len(ev.notes):
         # Already at boundary, no-op
         return ev
-    
+
     # Swap the notes
     ev.notes[idx], ev.notes[swap_idx] = ev.notes[swap_idx], ev.notes[idx]
-    
+
     ev.touch(now=now)
     repo.upsert_event(ev)
     return ev
@@ -391,35 +391,36 @@ def process_recurring_events(
     now: datetime | None = None,
 ) -> list[Event]:
     """Process recurring events that have passed and clone them for next occurrence.
-    
+
     Returns list of newly created events.
     """
     new_events: list[Event] = []
-    
+
     for event in repo.list_events():
         # Skip non-recurring events
         if not event.repeat or not isinstance(event.repeat, dict):
             continue
-        
+
         freq = event.repeat.get("freq")
         if not freq or freq == "none":
             continue
-        
+
         # Check if event has already passed
         event_end_date = event.date
         if event.end_day_offset and event.end_day_offset > 0:
             from datetime import timedelta
+
             event_end_date = event.date + timedelta(days=event.end_day_offset)
-        
+
         # Only process events that have already passed
         if event_end_date >= today:
             continue
-        
+
         # Find the next occurrence that is >= today
         next_date = event.next_occurrence(after=event_end_date)
         if next_date is None:
             continue
-        
+
         # Keep advancing until we find a date >= today
         max_iterations = 365
         iteration = 0
@@ -428,10 +429,10 @@ def process_recurring_events(
             if next_date is None:
                 break
             iteration += 1
-        
+
         if next_date is None or next_date < today:
             continue
-        
+
         # Create a new event for the next occurrence
         new_event = Event.create(
             title=event.title,
@@ -444,13 +445,16 @@ def process_recurring_events(
             notify_minutes_before=event.notify_minutes_before,
             repeat=dict(event.repeat),
         )
-        new_event.notes = list(event.notes)
+        # Clone notes with new IDs
+        from logui.domain.entities.event import EventNote
+
+        new_event.notes = [EventNote.create(text=note.text, now=now) for note in event.notes]
         repo.upsert_event(new_event)
         new_events.append(new_event)
-        
+
         # Remove recurrence from original event (it's now a one-time past event)
         event.repeat = {"freq": "none"}
         event.touch(now=now)
         repo.upsert_event(event)
-    
+
     return new_events

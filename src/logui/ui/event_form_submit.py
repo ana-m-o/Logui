@@ -41,8 +41,7 @@ _INVALID_END_DATE_MSG = (
 _INVALID_START_TIME_MSG = "Invalid start time. Allowed formats: 9, 9:30, 09:00. Empty = all day"
 
 _INVALID_END_TIME_MSG = (
-    "Invalid end time. Allowed formats: 9, 9:30, 09:00. "
-    "Empty = +1h if there is a start"
+    "Invalid end time. Allowed formats: 9, 9:30, 09:00. Empty = +1h if there is a start"
 )
 
 
