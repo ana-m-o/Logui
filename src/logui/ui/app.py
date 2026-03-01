@@ -41,6 +41,7 @@ from logui.usecases.event_notifications import (
     due_notifications,
     notification_key,
 )
+from logui.usecases.tasks import archive_completed_tasks
 
 _log = logging.getLogger(__name__)
 
@@ -195,6 +196,12 @@ class LogUIApp(App):
         # Track last rollover date to detect missed rollovers on startup
         self._state_file = self._data_dir / ".state.json"
 
+    def on_unmount(self) -> None:
+        """Clean up resources when app is unmounted."""
+        if hasattr(self, '_db') and self._db is not None:
+            self._db.close()
+            _log.debug("Database connection closed")
+
     def change_data_directory(self, *, new_dir: str, move_files: bool) -> bool:
         """Update bootstrap data dir and copy data/config as requested.
 
@@ -224,11 +231,11 @@ class LogUIApp(App):
                 ui=current_config.ui,
                 data_directory=None,
             )
-            # Initialize new database and save config
-            new_db = SQLiteDatabase(target_dir / "logui.db")
-            new_db.init_schema()
-            new_config_repo = SqliteConfigRepository(new_db)
-            new_config_repo.save(cleaned_config)
+            # Initialize new database and save config (use context manager to ensure cleanup)
+            with SQLiteDatabase(target_dir / "logui.db") as new_db:
+                new_db.init_schema()
+                new_config_repo = SqliteConfigRepository(new_db)
+                new_config_repo.save(cleaned_config)
         except (OSError, ValueError, TypeError) as e:
             _log.warning("Failed copying config to new data directory: %s", e)
 
@@ -301,6 +308,15 @@ class LogUIApp(App):
         except Exception as e:  # noqa: BLE001
             _log.debug("Failed to persist theme %s: %s", theme_name, e)
         self.update_nav_counts()  # Initial update
+        
+        # Archive tasks that have been completed for more than 1 day
+        try:
+            archived_count = archive_completed_tasks(self._task_repo, days_threshold=1)
+            if archived_count > 0:
+                _log.debug("Auto-archived %d completed tasks", archived_count)
+        except Exception as e:  # noqa: BLE001
+            _log.warning("Failed to auto-archive completed tasks: %s", e)
+        
         # Check for missed rollovers (app was closed overnight)
         self._check_missed_rollovers()
         self._start_polling()

@@ -94,7 +94,7 @@ class TaskNote:
 @dataclass
 class Task:
     id: UUID
-    order: int
+    order: float
     title: str
     status: TaskStatus
     priority: bool
@@ -104,6 +104,7 @@ class Task:
     notes: list[TaskNote] = field(default_factory=list)
     subtasks: list["Task"] = field(default_factory=list)
     completed_at: datetime | None = None
+    archived: bool = False
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
 
@@ -113,7 +114,7 @@ class Task:
         *,
         now: datetime | None = None,
         task_id: UUID | None = None,
-        order: int = 0,
+        order: float = 0.0,
         status: TaskStatus = TaskStatus.TODO,
         priority: bool = False,
         due_date: date | None = None,
@@ -127,7 +128,7 @@ class Task:
         completed_at: datetime | None = ts if status == TaskStatus.DONE else None
         return Task(
             id=task_id or uuid4(),
-            order=int(order),
+            order=float(order),
             title=cleaned,
             status=status,
             priority=bool(priority),
@@ -135,6 +136,7 @@ class Task:
             link=link,
             repeat=repeat,
             completed_at=completed_at,
+            archived=False,
             created_at=ts,
             updated_at=ts,
         )
@@ -182,6 +184,7 @@ class Task:
             "notes": [n.to_dict() for n in self.notes],
             "subtasks": [t.to_dict() for t in self.subtasks],
             "completed_at": _format_dt_utc(self.completed_at) if self.completed_at else None,
+            "archived": self.archived,
             "created_at": _format_dt_utc(self.created_at),
             "updated_at": _format_dt_utc(self.updated_at),
         }
@@ -189,7 +192,7 @@ class Task:
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "Task":
         try:
-            order = int(data.get("order", 0))
+            order = float(data.get("order", 0.0))
             due_date = date.fromisoformat(data["due_date"]) if data.get("due_date") else None
 
             link: TaskLink | None = None
@@ -216,6 +219,7 @@ class Task:
                 notes=[TaskNote.from_dict(n) for n in (data.get("notes") or [])],
                 subtasks=[Task.from_dict(t) for t in (data.get("subtasks") or [])],
                 completed_at=completed_at,
+                archived=bool(data.get("archived", False)),
                 created_at=created_at,
                 updated_at=updated_at,
             )

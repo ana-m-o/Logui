@@ -20,4 +20,6 @@ def sqlite_db(tmp_path: Path):
 
     db = SQLiteDatabase(tmp_path / "logui.db")
     db.init_schema()
-    return db
+    yield db
+    # Ensure database is closed after each test
+    db.close()

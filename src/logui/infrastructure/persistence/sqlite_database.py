@@ -18,9 +18,15 @@ class SQLiteDatabase:
     - Database connection lifecycle
     - Schema creation and versioning
     - Transaction management via context manager
+    
+    Can be used as a context manager to ensure proper cleanup:
+        with SQLiteDatabase(path) as db:
+            db.init_schema()
+            # ... use db ...
+        # db.close() is called automatically
     """
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 3
 
     def __init__(self, db_path: Path):
         """Initialize database manager.
@@ -30,6 +36,14 @@ class SQLiteDatabase:
         """
         self._db_path = db_path
         self._connection: sqlite3.Connection | None = None
+
+    def __enter__(self) -> "SQLiteDatabase":
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit context manager, ensuring database is closed."""
+        self.close()
 
     @property
     def db_path(self) -> Path:
@@ -47,6 +61,7 @@ class SQLiteDatabase:
             self._connection = sqlite3.connect(
                 str(self._db_path),
                 check_same_thread=False,  # Allow multi-threaded access
+                timeout=30.0,  # Increase timeout to 30 seconds (default is 5)
             )
             # Enable foreign key constraints
             self._connection.execute("PRAGMA foreign_keys = ON")
@@ -100,19 +115,24 @@ class SQLiteDatabase:
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
         )
+        needs_migration = False
+        current_version = None
+        
         if cursor.fetchone():
-            # Schema exists, verify version
             cursor = conn.execute("SELECT version FROM schema_version")
             row = cursor.fetchone()
-            if row and row[0] == self.SCHEMA_VERSION:
-                _log.debug("Database schema already initialized (version %d)", row[0])
-                return
-            # TODO: Handle schema migrations if version differs
-            _log.warning(
-                "Schema version mismatch. Expected %d, found %s",
-                self.SCHEMA_VERSION,
-                row[0] if row else "none",
-            )
+            if row:
+                current_version = row[0]
+                if current_version == self.SCHEMA_VERSION:
+                    _log.debug("Database schema already initialized (version %d)", row[0])
+                    return
+                elif current_version < self.SCHEMA_VERSION:
+                    needs_migration = True
+                    _log.debug("Database schema migration needed: %d -> %d", current_version, self.SCHEMA_VERSION)
+
+        if needs_migration:
+            self._migrate_schema(current_version)
+            return
 
         _log.debug("Initializing database schema (version %d)", self.SCHEMA_VERSION)
 
@@ -172,7 +192,7 @@ class SQLiteDatabase:
                 CREATE TABLE IF NOT EXISTS tasks (
                     id TEXT PRIMARY KEY,
                     parent_id TEXT,
-                    task_order INTEGER NOT NULL,
+                    task_order REAL NOT NULL,
                     title TEXT NOT NULL,
                     status TEXT NOT NULL,
                     priority INTEGER NOT NULL DEFAULT 0,
@@ -181,6 +201,7 @@ class SQLiteDatabase:
                     link_text TEXT,
                     repeat_data TEXT,
                     completed_at TEXT,
+                    archived INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     CHECK (task_order >= 0),
@@ -231,6 +252,10 @@ class SQLiteDatabase:
             """)
 
             conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_tasks_archived ON tasks(archived)
+            """)
+
+            conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes(task_id)
             """)
 
@@ -239,6 +264,42 @@ class SQLiteDatabase:
             """)
 
         _log.debug("Database schema initialized successfully")
+
+    def _migrate_schema(self, from_version: int | None) -> None:
+        """Migrate database schema to current version.
+
+        Args:
+            from_version: Current schema version in the database
+        """
+        if from_version is None:
+            _log.error("Cannot migrate from unknown schema version")
+            return
+
+        _log.info("Migrating database schema from version %d to %d", from_version, self.SCHEMA_VERSION)
+
+        with self.transaction() as conn:
+            # Migration from v2 to v3: Add archived field to tasks
+            if from_version == 2 and self.SCHEMA_VERSION >= 3:
+                _log.debug("Migrating v2 -> v3: Adding archived field to tasks")
+                
+                # Add archived column with default value 0 (False)
+                conn.execute("""
+                    ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0
+                """)
+                
+                # Create index for archived field
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_tasks_archived ON tasks(archived)
+                """)
+                
+                _log.debug("Migration v2 -> v3 completed")
+            
+            # Update schema version
+            conn.execute(
+                "UPDATE schema_version SET version = ?", (self.SCHEMA_VERSION,)
+            )
+
+        _log.info("Database schema migration completed successfully")
 
     def vacuum(self) -> None:
         """Optimize database by rebuilding it.

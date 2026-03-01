@@ -41,8 +41,9 @@ class SqliteTaskRepository(TaskRepository):
             cursor = conn.execute("""
                 SELECT id, parent_id, task_order, title, status, priority,
                        due_date, link_url, link_text, repeat_data,
-                       completed_at, created_at, updated_at
+                       completed_at, archived, created_at, updated_at
                 FROM tasks
+                WHERE archived = 0
                 ORDER BY task_order, created_at
             """)
 
@@ -194,8 +195,8 @@ class SqliteTaskRepository(TaskRepository):
             INSERT OR REPLACE INTO tasks (
                 id, parent_id, task_order, title, status, priority,
                 due_date, link_url, link_text, repeat_data,
-                completed_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                completed_at, archived, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 str(task.id),
@@ -209,6 +210,7 @@ class SqliteTaskRepository(TaskRepository):
                 task.link.text if task.link else None,
                 repeat_data,
                 self._format_datetime(task.completed_at) if task.completed_at else None,
+                1 if task.archived else 0,
                 self._format_datetime(task.created_at),
                 self._format_datetime(task.updated_at),
             ),
@@ -288,8 +290,9 @@ class SqliteTaskRepository(TaskRepository):
             "notes": [n.to_dict() for n in notes],
             "subtasks": [],  # Will be populated by list_tasks
             "completed_at": task_row[10],
-            "created_at": task_row[11],
-            "updated_at": task_row[12],
+            "archived": bool(task_row[11]),
+            "created_at": task_row[12],
+            "updated_at": task_row[13],
         }
 
         return Task.from_dict(task_dict)

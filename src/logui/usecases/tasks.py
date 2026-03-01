@@ -263,8 +263,11 @@ def cycle_task_status(
                         new_subtask.notes = list(subtask.notes)
                         new_task.subtasks.append(new_subtask)
 
-                    # Calculate order: place after the current task
+                    # Calculate order: place after the current task with better precision
                     new_task.order = task.order + 0.5
+                    
+                    # Note: In the future, if tasks are positioned very close together,
+                    # calling normalize_task_order() can help maintain clean values
 
                     # Add to parent or root level
                     if parent is not None:
@@ -598,3 +601,227 @@ def _move_task_note(
     root.touch(now=now)
     repo.upsert_task(root)
     return True
+
+
+def convert_task_to_subtask(
+    repo: TaskRepository,
+    task_id: UUID,
+    new_parent_id: UUID,
+    *,
+    now: datetime | None = None,
+) -> Task:
+    """Convert a task into a subtask of another task.
+    
+    Args:
+        repo: Task repository
+        task_id: ID of the task to convert
+        new_parent_id: ID of the task that will become the parent
+        now: Optional timestamp for updates
+        
+    Returns:
+        The converted task (now a subtask)
+        
+    Raises:
+        ValidationError: If task is already a subtask, has subtasks, or parent not found
+    """
+    # Find the task to convert
+    source_root, task, parent = _find_root_and_task(repo, task_id)
+    
+    # Validate: task must not already be a subtask
+    if parent is not None:
+        raise ValidationError("Cannot indent: task is already a subtask")
+    
+    # Validate: task must not have subtasks (to maintain single level)
+    if task.subtasks:
+        raise ValidationError("Cannot indent: task has subtasks")
+    
+    # Find the new parent (make a fresh clone to avoid reference issues)
+    new_parent_root, new_parent, new_parent_parent = _find_root_and_task(repo, new_parent_id)
+    
+    # Validate: new parent must not be a subtask (to maintain single level)
+    if new_parent_parent is not None:
+        raise ValidationError("Cannot indent: target is a subtask")
+    
+    # Determine order for the new subtask
+    siblings = sorted(new_parent.subtasks, key=lambda t: (t.order, t.created_at))
+    next_order = 0
+    if siblings:
+        next_order = max(t.order for t in siblings) + 1
+    
+    # Update task order and add to new parent
+    task.order = next_order
+    task.touch(now=now)
+    new_parent.add_subtask(task, now=now)
+    new_parent_root.touch(now=now)
+    
+    # If task and new_parent are in different root trees, 
+    # delete the old root and save the new one
+    if source_root.id == new_parent_root.id:
+        # Same root tree - this shouldn't happen since task is root and parent is root
+        # but handle it anyway
+        repo.upsert_task(new_parent_root)
+    else:
+        # Different root trees: delete old root task, save new parent with added subtask
+        repo.delete_task(task_id)
+        repo.upsert_task(new_parent_root)
+    
+    return task
+
+
+def convert_subtask_to_task(
+    repo: TaskRepository,
+    task_id: UUID,
+    *,
+    now: datetime | None = None,
+) -> Task:
+    """Convert a subtask into a root task.
+    
+    Args:
+        repo: Task repository
+        task_id: ID of the subtask to convert
+        now: Optional timestamp for updates
+        
+    Returns:
+        The converted task (now a root task)
+        
+    Raises:
+        ValidationError: If task is already a root task
+    """
+    # Find the subtask
+    root, task, parent = _find_root_and_task(repo, task_id)
+    
+    # Validate: task must be a subtask
+    if parent is None:
+        raise ValidationError("Cannot unindent: task is already a root task")
+    
+    # Remove task from parent's subtasks
+    parent.subtasks = [t for t in parent.subtasks if t.id != task_id]
+    parent.touch(now=now)
+    root.touch(now=now)
+    
+    # Save parent (with subtask removed) first
+    repo.upsert_task(root)
+    
+    # Calculate new order: place after parent and all its remaining subtasks
+    # Get all roots to determine proper order
+    roots = sorted(list(repo.list_tasks()), key=lambda t: (t.order, t.created_at))
+    
+    # Find parent in roots to get its order
+    parent_in_roots = next((r for r in roots if r.id == parent.id), None)
+    if parent_in_roots is None:
+        # Parent is not a root (shouldn't happen given our validation)
+        parent_order = parent.order
+    else:
+        parent_order = parent_in_roots.order
+    
+    # Find the next task after parent in the root list
+    following_roots = [t for t in roots if t.order > parent_order]
+    if following_roots:
+        next_root_order = min(t.order for t in following_roots)
+        # Check if values are too close (need renormalization)
+        if next_root_order - parent_order < 0.001:
+            # Trigger renormalization to clean up order values
+            normalize_task_order(repo, now=now)
+            # Re-fetch roots after normalization
+            roots = sorted(list(repo.list_tasks()), key=lambda t: (t.order, t.created_at))
+            parent_in_roots = next((r for r in roots if r.id == parent.id), None)
+            if parent_in_roots:
+                parent_order = parent_in_roots.order
+            following_roots = [t for t in roots if t.order > parent_order]
+            if following_roots:
+                next_root_order = min(t.order for t in following_roots)
+                task.order = parent_order + (next_root_order - parent_order) / 2.0
+            else:
+                task.order = parent_order + 1.0
+        else:
+            # Use better precision formula: parent + (next - parent) / 2
+            task.order = parent_order + (next_root_order - parent_order) / 2.0
+    else:
+        task.order = parent_order + 1.0
+    
+    task.touch(now=now)
+    
+    # Save task as new root
+    repo.upsert_task(task)
+    
+    return task
+
+
+def normalize_task_order(
+    repo: TaskRepository,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Renormalizes task order values to clean sequential integers.
+    
+    This function resets all task order values to sequential integers (0, 1, 2...)
+    based on their current order, preventing precision issues from fractional
+    insertions over time. Both root tasks and subtasks are renormalized.
+    
+    Args:
+        repo: Task repository
+        now: Optional timestamp for updates
+        
+    Note:
+        This operation updates all tasks in the repository. Use sparingly,
+        such as when detecting order values that are too close together.
+    """
+    roots = sorted(list(repo.list_tasks()), key=lambda t: (t.order, t.created_at))
+    
+    for i, root in enumerate(roots):
+        root_clone = _clone_task(root)
+        root_clone.order = float(i)
+        
+        # Also normalize subtask orders
+        sorted_subtasks = sorted(root_clone.subtasks, key=lambda t: (t.order, t.created_at))
+        for j, subtask in enumerate(sorted_subtasks):
+            subtask.order = float(j)
+            subtask.touch(now=now)
+        
+        root_clone.touch(now=now)
+        repo.upsert_task(root_clone)
+
+
+def archive_completed_tasks(repo: TaskRepository, *, days_threshold: int = 1, now: datetime | None = None) -> int:
+    """Archive tasks that have been completed for more than the threshold.
+    
+    Args:
+        repo: Task repository
+        days_threshold: Number of days after completion to archive (default: 1)
+        now: Current time (for testing)
+        
+    Returns:
+        Number of tasks archived
+    """
+    current_time = now or utc_now()
+    tasks = repo.list_tasks()
+    archived_count = 0
+    
+    def _archive_if_old(task: Task) -> bool:
+        """Recursively archive tasks and their subtasks if completed long enough ago.
+        
+        Returns:
+            True if the task was archived
+        """
+        nonlocal archived_count
+        
+        # Check subtasks first
+        for subtask in task.subtasks[:]:  # Use slice to avoid modifying list during iteration
+            _archive_if_old(subtask)
+        
+        # Archive this task if it's completed and old enough
+        if task.status == TaskStatus.DONE and task.completed_at:
+            days_completed = (current_time - task.completed_at).total_seconds() / 86400
+            if days_completed > days_threshold:
+                task.archived = True
+                task.touch(now=current_time)
+                repo.upsert_task(task)
+                archived_count += 1
+                return True
+        
+        return False
+    
+    for task in tasks:
+        _archive_if_old(task)
+    
+    return archived_count

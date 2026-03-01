@@ -32,6 +32,8 @@ from logui.ui.screens.task_notes import TaskNotesScreen
 from logui.usecases.tasks import (
     CreateTaskInput,
     UpdateTaskPatch,
+    convert_subtask_to_task,
+    convert_task_to_subtask,
     create_subtask,
     create_task,
     cycle_task_status,
@@ -494,6 +496,8 @@ class TasksPane(Container):
         Binding("p", "toggle_priority", "Priority", show=False),
         Binding("r", "cycle_repeat", "Repeat", show=False),
         Binding("o", "open_link", "Open link", show=False),
+        Binding("i", "indent", "Indent", show=False),
+        Binding("u", "unindent", "Unindent", show=False),
         Binding("alt+up", "move_up", "Move up", show=False),
         Binding("alt+down", "move_down", "Move down", show=False),
     ]
@@ -512,7 +516,7 @@ class TasksPane(Container):
             ),
             Static(
                 "[dim]n new • s subtask • m notes • e/enter edit • x delete • c status • "
-                "p priority • r repeat • o open link • alt+↑/↓ reorder[/dim]",
+                "p priority • r repeat • o open link • i indent • u unindent • alt+↑/↓ reorder[/dim]",
                 classes="page_help",
             ),
             ListView(id="tasks_list", classes="task_list"),
@@ -1384,6 +1388,172 @@ class TasksPane(Container):
                 lv.index = new_idx
                 break
 
+        lv.focus()
+
+    def action_indent(self) -> None:
+        """Convert selected task into a subtask of the task above it."""
+        selected_row = self._selected_row()
+        if selected_row is None:
+            return
+
+        task = selected_row.task
+        lv = self.query_one("#tasks_list", ListView)
+        idx = lv.index or 0
+
+        # Cannot indent first item
+        if idx == 0:
+            self._notify("Cannot indent: already at top")
+            lv.focus()
+            return
+
+        # Cannot indent if already a subtask (only 1 level allowed)
+        if selected_row.depth > 0:
+            self._notify("Cannot indent: already a subtask")
+            lv.focus()
+            return
+
+        # Cannot indent if task has subtasks (to maintain single level)
+        if task.subtasks:
+            self._notify("Cannot indent: task has subtasks")
+            lv.focus()
+            return
+
+        # Find the task above
+        prev_row = self._rows[idx - 1]
+        target_parent_row = prev_row
+
+        # If prev row is a subtask, find its parent (the root task)
+        if prev_row.depth > 0:
+            # Search backwards for the parent
+            for j in range(idx - 2, -1, -1):
+                if self._rows[j].depth == 0:
+                    target_parent_row = self._rows[j]
+                    break
+
+        target_parent_id = target_parent_row.task.id
+
+        # Perform the conversion
+        try:
+            convert_task_to_subtask(self._repo, task.id, target_parent_id)
+            self._indent_selected_in_place(task.id, idx)
+            self._notify("Task converted to subtask")
+        except ValidationError as e:
+            self._notify(f"Error: {e}")
+            lv.focus()
+
+    def _indent_selected_in_place(self, task_id: UUID, old_idx: int) -> None:
+        """Update the list after indenting a task, without full refresh."""
+        lv = self.query_one("#tasks_list", ListView)
+        
+        # Recalculate rows from repository
+        roots = list(self._repo.list_tasks())
+        roots.sort(key=lambda t: (t.order, t.created_at))
+        new_rows: list[_TaskRow] = []
+        for t in roots:
+            new_rows.extend(_flatten_task_tree(t, depth=0, parent_id=None))
+        
+        # Find where the task ended up
+        new_idx = next((i for i, row in enumerate(new_rows) if row.task.id == task_id), None)
+        if new_idx is None:
+            # Fallback to full refresh if we can't find it
+            self._refresh(keep_id=str(task_id), focus=True)
+            return
+        
+        # Update internal rows
+        self._rows = new_rows
+        
+        # Remove the old item
+        items = list(lv.query(ListItem))
+        if old_idx < len(items):
+            items[old_idx].remove()
+        
+        # Build the new item (now with indentation)
+        new_item = self._build_list_item(new_rows[new_idx])
+        
+        # Insert at the correct position
+        remaining_items = list(lv.query(ListItem))
+        if new_idx == 0:
+            if len(remaining_items) > 0:
+                lv.mount(new_item, before=remaining_items[0])
+            else:
+                lv.mount(new_item)
+        elif new_idx >= len(remaining_items):
+            lv.mount(new_item)
+        else:
+            lv.mount(new_item, before=remaining_items[new_idx])
+        
+        # Update selection
+        lv.index = new_idx
+        lv.focus()
+
+    def action_unindent(self) -> None:
+        """Convert selected subtask into a root task."""
+        selected_row = self._selected_row()
+        if selected_row is None:
+            return
+
+        task = selected_row.task
+        lv = self.query_one("#tasks_list", ListView)
+        old_idx = lv.index or 0
+
+        # Cannot unindent if already a root task
+        if selected_row.depth == 0:
+            self._notify("Cannot unindent: already a root task")
+            lv.focus()
+            return
+
+        # Perform the conversion
+        try:
+            convert_subtask_to_task(self._repo, task.id)
+            self._unindent_selected_in_place(task.id, old_idx)
+            self._notify("Subtask converted to task")
+        except ValidationError as e:
+            self._notify(f"Error: {e}")
+            lv.focus()
+
+    def _unindent_selected_in_place(self, task_id: UUID, old_idx: int) -> None:
+        """Update the list after unindenting a task, without full refresh."""
+        lv = self.query_one("#tasks_list", ListView)
+        
+        # Recalculate rows from repository
+        roots = list(self._repo.list_tasks())
+        roots.sort(key=lambda t: (t.order, t.created_at))
+        new_rows: list[_TaskRow] = []
+        for t in roots:
+            new_rows.extend(_flatten_task_tree(t, depth=0, parent_id=None))
+        
+        # Find where the task ended up
+        new_idx = next((i for i, row in enumerate(new_rows) if row.task.id == task_id), None)
+        if new_idx is None:
+            # Fallback to full refresh if we can't find it
+            self._refresh(keep_id=str(task_id), focus=True)
+            return
+        
+        # Update internal rows
+        self._rows = new_rows
+        
+        # Remove the old item
+        items = list(lv.query(ListItem))
+        if old_idx < len(items):
+            items[old_idx].remove()
+        
+        # Build the new item (now without indentation)
+        new_item = self._build_list_item(new_rows[new_idx])
+        
+        # Insert at the correct position
+        remaining_items = list(lv.query(ListItem))
+        if new_idx == 0:
+            if len(remaining_items) > 0:
+                lv.mount(new_item, before=remaining_items[0])
+            else:
+                lv.mount(new_item)
+        elif new_idx >= len(remaining_items):
+            lv.mount(new_item)
+        else:
+            lv.mount(new_item, before=remaining_items[new_idx])
+        
+        # Update selection
+        lv.index = new_idx
         lv.focus()
 
     def on_click(self, event: events.Click) -> None:
