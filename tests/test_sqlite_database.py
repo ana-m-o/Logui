@@ -323,6 +323,7 @@ def test_sqlite_database_indexes_created(tmp_path: Path) -> None:
         "idx_tasks_order",
         "idx_tasks_parent",
         "idx_tasks_due_date",
+        "idx_tasks_archived",
         "idx_task_notes_task_id",
         "idx_journal_date",
     ]

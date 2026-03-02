@@ -8,7 +8,12 @@ from logui.domain.entities.task import Task
 
 class TaskRepository(ABC):
     @abstractmethod
-    def list_tasks(self) -> list[Task]:
+    def list_tasks(self, *, include_old_completed: bool = True) -> list[Task]:
+        """List all root tasks.
+        
+        Args:
+            include_old_completed: If False, filters out DONE tasks completed before today (SQL optimization)
+        """
         raise NotImplementedError
 
     @abstractmethod

@@ -554,7 +554,8 @@ class TasksPane(Container):
         if keep_scroll:
             old_scroll_y = getattr(lv, "scroll_y", None)
 
-        roots = list(self._repo.list_tasks())
+        # Optimization: Don't fetch DONE tasks from previous days (we filter them anyway)
+        roots = list(self._repo.list_tasks(include_old_completed=False))
         roots.sort(key=lambda t: (t.order, t.created_at))
 
         rows: list[_TaskRow] = []
@@ -1446,7 +1447,7 @@ class TasksPane(Container):
         lv = self.query_one("#tasks_list", ListView)
         
         # Recalculate rows from repository
-        roots = list(self._repo.list_tasks())
+        roots = list(self._repo.list_tasks(include_old_completed=False))
         roots.sort(key=lambda t: (t.order, t.created_at))
         new_rows: list[_TaskRow] = []
         for t in roots:
@@ -1516,7 +1517,7 @@ class TasksPane(Container):
         lv = self.query_one("#tasks_list", ListView)
         
         # Recalculate rows from repository
-        roots = list(self._repo.list_tasks())
+        roots = list(self._repo.list_tasks(include_old_completed=False))
         roots.sort(key=lambda t: (t.order, t.created_at))
         new_rows: list[_TaskRow] = []
         for t in roots:

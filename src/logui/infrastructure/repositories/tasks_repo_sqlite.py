@@ -28,8 +28,11 @@ class SqliteTaskRepository(TaskRepository):
         """
         self._db = db
 
-    def list_tasks(self) -> list[Task]:
+    def list_tasks(self, *, include_old_completed: bool = True) -> list[Task]:
         """List all root tasks with their subtasks.
+
+        Args:
+            include_old_completed: If False, filters out DONE tasks completed before today
 
         Returns:
             List of root Task instances (parent_id IS NULL)
@@ -38,12 +41,26 @@ class SqliteTaskRepository(TaskRepository):
             conn = self._db.get_connection()
 
             # Load all tasks
-            cursor = conn.execute("""
+            # Optimization: Filter DONE tasks from previous days in SQL when not needed
+            where_clause = "WHERE archived = 0"
+            if not include_old_completed:
+                from datetime import datetime, timezone
+                today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                today_start_iso = today_start.isoformat()
+                where_clause += f"""
+                    AND (
+                        status != 'done'
+                        OR completed_at IS NULL
+                        OR completed_at >= '{today_start_iso}'
+                    )
+                """
+            
+            cursor = conn.execute(f"""
                 SELECT id, parent_id, task_order, title, status, priority,
                        due_date, link_url, link_text, repeat_data,
                        completed_at, archived, created_at, updated_at
                 FROM tasks
-                WHERE archived = 0
+                {where_clause}
                 ORDER BY task_order, created_at
             """)
 
