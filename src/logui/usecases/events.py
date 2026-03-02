@@ -445,10 +445,7 @@ def process_recurring_events(
             notify_minutes_before=event.notify_minutes_before,
             repeat=dict(event.repeat),
         )
-        # Clone notes with new IDs
-        from logui.domain.entities.event import EventNote
-
-        new_event.notes = [EventNote.create(text=note.text, now=now) for note in event.notes]
+        # Notes are NOT cloned - they are unique to each occurrence
         repo.upsert_event(new_event)
         new_events.append(new_event)
 

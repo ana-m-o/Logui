@@ -124,7 +124,7 @@ def test_process_recurring_events_respects_until(tmp_path):
 
 
 def test_process_recurring_events_clones_notes(tmp_path):
-    """Cloned events should include notes from original."""
+    """Cloned events should NOT include notes from original - notes are unique per occurrence."""
     db = SQLiteDatabase(tmp_path / "logui.db")
     db.init_schema()
     repo = SqliteEventRepository(db)
@@ -148,8 +148,8 @@ def test_process_recurring_events_clones_notes(tmp_path):
     new_events = process_recurring_events(repo, today=date(2026, 1, 24))
 
     assert len(new_events) == 1
-    assert len(new_events[0].notes) == 1
-    assert new_events[0].notes[0].text == "Important note"
+    # Notes should NOT be cloned - each occurrence has its own notes
+    assert len(new_events[0].notes) == 0
 
 
 def test_process_recurring_events_only_clones_once(tmp_path):
