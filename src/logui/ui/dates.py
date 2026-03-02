@@ -48,8 +48,8 @@ def fmt_day_compact_friendly(day: date, *, today: date) -> str:
     """Compact format with weekday: `Wed 26 Feb` (without year if it's the current year).
 
     Special cases:
-    - Today: `[bold]Today[/bold] Wed 25 Feb`
-    - Tomorrow: `[bold]Tomorrow[/bold] Thu 26 Feb`
+    - Today: `[bold]Today[/bold] - Wed 25 Feb`
+    - Tomorrow: `[bold]Tomorrow[/bold] - Thu 26 Feb`
     
     If the year is later than `today`, includes the year.
     """
@@ -62,9 +62,9 @@ def fmt_day_compact_friendly(day: date, *, today: date) -> str:
     
     # Check if it's today or tomorrow
     if day == today:
-        return f"[bold]Today[/bold] {base}"
+        return f"[bold]Today[/bold] - {base}"
     elif day == today + timedelta(days=1):
-        return f"[bold]Tomorrow[/bold] {base}"
+        return f"[bold]Tomorrow[/bold] - {base}"
     
     return base
 

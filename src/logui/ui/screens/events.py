@@ -728,6 +728,13 @@ class EventsPane(Container):
             except (NoMatches, TooManyMatches, AttributeError):
                 continue
             self._apply_temporal_classes(row, ev, now=now)
+            
+            # Update the event row text to reflect current temporal state (e.g., "Now" vs "Today")
+            try:
+                label = row.query_one(".event_row_main", Label)
+                label.update(self._format_row(ev))
+            except (NoMatches, TooManyMatches, AttributeError):
+                pass
 
         # Check if any events should be auto-hidden
         self._check_and_schedule_auto_hide(now)
@@ -941,10 +948,20 @@ class EventsPane(Container):
 
     def _format_row(self, ev: Event) -> str:
         today = today_local()
+        now = datetime.now()
+        is_in_progress = "is_in_progress" in temporal_classnames(ev, now=now)
+        
+        def fmt_with_now_support(d: date) -> str:
+            formatted = self._fmt_day_friendly(d, today)
+            # Show "Now" instead of "Today" when event is in progress
+            if is_in_progress and d == today and formatted.startswith("[bold]Today[/bold]"):
+                return formatted.replace("[bold]Today[/bold] -", "[bold]Now[/bold] -", 1)
+            return formatted
+        
         return format_event_row(
             ev,
             today=today,
-            fmt_day_friendly=lambda d: self._fmt_day_friendly(d, today),
+            fmt_day_friendly=fmt_with_now_support,
         )
 
     def _event_notify_glyph(self, ev: Event) -> str:
