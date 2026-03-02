@@ -63,6 +63,11 @@ ListView {
     }
 }
 
+/* Compact mode */
+.compact ListView ListItem {
+    padding: 0;
+}
+
 .menu_item {
     padding: 1 2;
 }

@@ -254,6 +254,7 @@ class ConfigPane(Container):
         all_day = (self._config.notifications.all_day_notify_time or "09:00").strip() or "09:00"
         default_mins = int(self._config.notifications.default_minutes_before)
         auto_hide = "Yes" if self._config.ui.auto_hide_completed else "No"
+        compact_mode = "Yes" if self._config.ui.compact_mode else "No"
         data_dir = self._data_dir_text
 
         try:
@@ -279,6 +280,13 @@ class ConfigPane(Container):
                 key="auto_hide_completed",
                 title="Auto-hide completed items",
                 value=auto_hide,
+            )
+        )
+        lv.append(
+            _ConfigRow(
+                key="compact_mode",
+                title="Compact mode",
+                value=compact_mode,
             )
         )
 
@@ -480,6 +488,23 @@ class ConfigPane(Container):
             self.call_later(self._trigger_auto_hide_refresh)
             return
 
+        if key == "compact_mode":
+            current = self._config.ui.compact_mode
+            new_value = not current
+
+            # Update config directly
+            from logui.usecases.config import toggle_compact_mode
+
+            toggle_compact_mode(repo=self._repo)
+
+            status = "enabled" if new_value else "disabled"
+            self._notify(f"Compact mode {status}")
+            self.call_later(self._refresh)
+
+            # Trigger refresh of app classes
+            self.call_later(self._trigger_compact_mode_refresh)
+            return
+
     def _trigger_auto_hide_refresh(self) -> None:
         """Refresh all panes when auto-hide setting changes."""
         # Refresh tasks pane
@@ -509,5 +534,16 @@ class ConfigPane(Container):
             log_pane = self.app.query_one(LogPane)
             if log_pane:
                 log_pane._load_log()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _trigger_compact_mode_refresh(self) -> None:
+        """Apply or remove compact mode class from the app."""
+        try:
+            config = self._repo.load()
+            if config.ui.compact_mode:
+                self.app.add_class("compact")
+            else:
+                self.app.remove_class("compact")
         except Exception:  # noqa: BLE001
             pass

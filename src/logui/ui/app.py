@@ -299,6 +299,10 @@ class LogUIApp(App):
             except Exception as e:  # noqa: BLE001
                 _log.debug("Failed to apply saved theme %s: %s", config.ui.theme, e)
 
+        # Apply compact mode if enabled
+        if config.ui.compact_mode:
+            self.add_class("compact")
+
     def watch_theme(self, theme_name: str) -> None:
         """Watch theme changes and persist them to config."""
         from logui.usecases.config import set_theme

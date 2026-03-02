@@ -78,6 +78,15 @@ def toggle_auto_hide_completed(*, repo: ConfigRepository) -> AppConfig:
     return updated
 
 
+def toggle_compact_mode(*, repo: ConfigRepository) -> AppConfig:
+    """Toggle the compact mode setting."""
+    current = repo.load()
+    new_ui = replace(current.ui, compact_mode=not current.ui.compact_mode)
+    updated = replace(current, ui=new_ui)
+    repo.save(updated)
+    return updated
+
+
 def set_theme(*, repo: ConfigRepository, theme_name: str) -> AppConfig:
     """Set the theme in configuration."""
     current = repo.load()
