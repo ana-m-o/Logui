@@ -38,8 +38,7 @@ from logui.usecases.tasks import (
     create_task,
     cycle_task_status,
     delete_task,
-    move_task_down,
-    move_task_up,
+    reposition_task,
     toggle_task_priority,
     update_task,
 )
@@ -72,6 +71,14 @@ _REPEAT_FREQ_OPTIONS: list[tuple[str, str]] = [
     ("Weekly", "weekly"),
     ("Monthly", "monthly"),
 ]
+
+_TASK_STATUS_CSS_CLASSES: dict[TaskStatus, str] = {
+    TaskStatus.TODO: "task_status_todo",
+    TaskStatus.IN_PROGRESS: "task_status_in_progress",
+    TaskStatus.POSTPONED: "task_status_postponed",
+    TaskStatus.IN_REVIEW: "task_status_in_review",
+    TaskStatus.DONE: "task_status_done",
+}
 
 
 def _build_due_date_hint_text(*, due_date_raw: str, today: date) -> str:
@@ -663,6 +670,35 @@ class TasksPane(Container):
     def _fmt_day(self, day: date) -> str:
         return fmt_day_full_friendly(day)
 
+    def _apply_task_status_classes(self, item: ListItem, status: TaskStatus) -> None:
+        for css_class in _TASK_STATUS_CSS_CLASSES.values():
+            item.remove_class(css_class)
+
+        item.add_class(_TASK_STATUS_CSS_CLASSES.get(status, "task_status_todo"))
+
+        if status == TaskStatus.DONE:
+            item.add_class("task_done")
+        else:
+            item.remove_class("task_done")
+
+    def _apply_task_priority_classes(self, item: ListItem, priority: bool) -> None:
+        if priority:
+            item.add_class("task_is_priority")
+        else:
+            item.remove_class("task_is_priority")
+
+    def _apply_task_due_classes(
+        self,
+        item: ListItem,
+        due_date: date | None,
+        *,
+        today: date,
+    ) -> None:
+        if due_date is not None and due_date <= today:
+            item.add_class("task_due_today_or_past")
+        else:
+            item.remove_class("task_due_today_or_past")
+
     def _build_list_item(self, row: _TaskRow) -> ListItem:
         t = row.task
         depth = row.depth
@@ -727,8 +763,9 @@ class TasksPane(Container):
 
         if depth > 0:
             item.add_class("task_subtask")
-        if t.status == TaskStatus.DONE:
-            item.add_class("task_done")
+        self._apply_task_status_classes(item, t.status)
+        self._apply_task_priority_classes(item, t.priority)
+        self._apply_task_due_classes(item, t.due_date, today=today)
         return item
 
     def _selected_task(self) -> Task | None:
@@ -870,6 +907,7 @@ class TasksPane(Container):
         item = items[idx]
         try:
             item.query_one(".task_priority", Static).update("✱" if updated.priority else " ")
+            self._apply_task_priority_classes(item, updated.priority)
             item.query_one(".task_status", Static).update(self._status_tag(updated.status))
             item.query_one(".task_title", Static).update(updated.title)
 
@@ -883,6 +921,7 @@ class TasksPane(Container):
                 due_w.add_class("is_overdue")
             else:
                 due_w.remove_class("is_overdue")
+            self._apply_task_due_classes(item, updated.due_date, today=today)
 
             link_text = ""
             if updated.link is not None:
@@ -911,11 +950,7 @@ class TasksPane(Container):
                     else:
                         repeat_text = " 🔁"
             item.query_one(".task_repeat", Static).update(repeat_text)
-
-            if updated.status == TaskStatus.DONE:
-                item.add_class("task_done")
-            else:
-                item.remove_class("task_done")
+            self._apply_task_status_classes(item, updated.status)
 
             depth = self._rows[idx].depth
             notes_block = _format_task_notes_block(updated.notes or [], depth=depth)
@@ -1347,17 +1382,47 @@ class TasksPane(Container):
             neighbor_start = next_start
             neighbor_end = next_end
 
+        after_task_id: UUID | None = None
+        before_task_id: UUID | None = None
+        if direction == -1:
+            before_task_id = self._rows[neighbor_start].task.id
+            prev_visible_same_level: UUID | None = None
+            for j in range(neighbor_start - 1, -1, -1):
+                row = self._rows[j]
+                if row.depth < selected.depth:
+                    break
+                if row.depth == selected.depth and row.parent_id == selected.parent_id:
+                    prev_visible_same_level = row.task.id
+                    break
+            after_task_id = prev_visible_same_level
+        else:
+            after_task_id = self._rows[neighbor_start].task.id
+            next_visible_same_level: UUID | None = None
+            for j in range(neighbor_end + 1, len(self._rows)):
+                row = self._rows[j]
+                if row.depth < selected.depth:
+                    break
+                if row.depth == selected.depth and row.parent_id == selected.parent_id:
+                    next_visible_same_level = row.task.id
+                    break
+            before_task_id = next_visible_same_level
+
         try:
-            if direction == -1:
-                move_task_up(self._repo, task.id)
-            else:
-                move_task_down(self._repo, task.id)
+            updated = reposition_task(
+                self._repo,
+                task.id,
+                after_task_id=after_task_id,
+                before_task_id=before_task_id,
+            )
         except ValidationError as e:
             self._notify(f"Error: {e}")
             lv.focus()
             return
 
-        # Update in-memory rows by swapping whole root blocks.
+        # Keep visible UI updates in-place (no full refresh) to avoid flicker.
+        task.order = updated.order
+
+        # Update in-memory rows by swapping whole root/subtree blocks.
         cur_block = self._rows[cur_start : cur_end + 1]
         neighbor_block = self._rows[neighbor_start : neighbor_end + 1]
         if direction == -1:
@@ -1369,15 +1434,14 @@ class TasksPane(Container):
                 self._rows[:cur_start] + neighbor_block + cur_block + self._rows[neighbor_end + 1 :]
             )
 
-        # Reorder DOM nodes without unmounting (preserves children, focus, scroll).
         items = list(lv.query(ListItem))
         if cur_end >= len(items) or neighbor_end >= len(items):
-            self._refresh(keep_id=str(task.id))
+            self._refresh(keep_id=str(task.id), keep_scroll=True, focus=True)
             return
 
         if direction == -1:
             anchor = items[neighbor_start]
-            for li in reversed(items[cur_start : cur_end + 1]):
+            for li in items[cur_start : cur_end + 1]:
                 lv.move_child(li, before=anchor)
         else:
             anchor = items[neighbor_end]
@@ -1388,7 +1452,6 @@ class TasksPane(Container):
             if r.task.id == task.id:
                 lv.index = new_idx
                 break
-
         lv.focus()
 
     def action_indent(self) -> None:

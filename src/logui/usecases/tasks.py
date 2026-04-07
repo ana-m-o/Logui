@@ -311,6 +311,151 @@ def move_task_down(
     return _move_task(repo, task_id, direction=+1, now=now)
 
 
+def _spread_root_orders(
+    roots: list[Task],
+    *,
+    now: datetime | None = None,
+) -> None:
+    for idx, root in enumerate(sorted(roots, key=lambda t: (t.order, t.created_at)), start=1):
+        root.order = float(idx * 2)
+        root.touch(now=now)
+
+
+def _spread_subtask_orders(
+    siblings: list[Task],
+    *,
+    now: datetime | None = None,
+) -> None:
+    for idx, sibling in enumerate(sorted(siblings, key=lambda t: (t.order, t.created_at)), start=1):
+        sibling.order = float(idx * 2)
+        sibling.touch(now=now)
+
+
+def _resolve_reposition_order(
+    *,
+    after_order: float | None,
+    before_order: float | None,
+) -> float | None:
+    if after_order is None and before_order is None:
+        return None
+
+    if after_order is None:
+        if before_order is None:
+            return None
+        if before_order <= 0.0:
+            return None
+        return before_order / 2.0
+
+    if before_order is None:
+        return after_order + 1.0
+
+    gap = before_order - after_order
+    if gap <= 0.001:
+        return None
+    return after_order + gap / 2.0
+
+
+def reposition_task(
+    repo: TaskRepository,
+    task_id: UUID,
+    *,
+    after_task_id: UUID | None = None,
+    before_task_id: UUID | None = None,
+    now: datetime | None = None,
+) -> Task:
+    """Reposition a task between sibling tasks using interpolated order values.
+
+    The task is placed between `after_task_id` and `before_task_id`. Either side may
+    be omitted to place the task at the beginning or end of its sibling group.
+    """
+    if after_task_id is None and before_task_id is None:
+        raise ValidationError("At least one neighbor is required to reposition a task")
+
+    try:
+        _root, _task, parent = _find_root_and_task(repo, task_id)
+    except ValidationError:
+        parent = None
+
+    if parent is None:
+        roots = sorted([_clone_task(t) for t in repo.list_tasks()], key=lambda t: (t.order, t.created_at))
+        task = next((t for t in roots if t.id == task_id), None)
+        if task is None:
+            raise ValidationError("Task not found")
+
+        def _find_root(ref_id: UUID | None) -> Task | None:
+            if ref_id is None:
+                return None
+            return next((t for t in roots if t.id == ref_id), None)
+
+        after_task = _find_root(after_task_id)
+        before_task = _find_root(before_task_id)
+
+        if after_task_id is not None and after_task is None:
+            raise ValidationError("After-task not found")
+        if before_task_id is not None and before_task is None:
+            raise ValidationError("Before-task not found")
+
+        new_order = _resolve_reposition_order(
+            after_order=after_task.order if after_task is not None else None,
+            before_order=before_task.order if before_task is not None else None,
+        )
+        if new_order is None:
+            _spread_root_orders(roots, now=now)
+            after_task = _find_root(after_task_id)
+            before_task = _find_root(before_task_id)
+            new_order = _resolve_reposition_order(
+                after_order=after_task.order if after_task is not None else None,
+                before_order=before_task.order if before_task is not None else None,
+            )
+            if new_order is None:
+                raise ValidationError("Unable to compute root task order")
+            for root in roots:
+                repo.upsert_task(root)
+
+        task.order = new_order
+        task.touch(now=now)
+        repo.upsert_task(task)
+        return task
+
+    root, task, parent = _find_root_and_task(repo, task_id)
+    siblings = sorted(parent.subtasks, key=lambda t: (t.order, t.created_at))
+
+    def _find_subtask(ref_id: UUID | None) -> Task | None:
+        if ref_id is None:
+            return None
+        return next((t for t in siblings if t.id == ref_id), None)
+
+    after_task = _find_subtask(after_task_id)
+    before_task = _find_subtask(before_task_id)
+
+    if after_task_id is not None and after_task is None:
+        raise ValidationError("After-task not found")
+    if before_task_id is not None and before_task is None:
+        raise ValidationError("Before-task not found")
+
+    new_order = _resolve_reposition_order(
+        after_order=after_task.order if after_task is not None else None,
+        before_order=before_task.order if before_task is not None else None,
+    )
+    if new_order is None:
+        _spread_subtask_orders(siblings, now=now)
+        after_task = _find_subtask(after_task_id)
+        before_task = _find_subtask(before_task_id)
+        new_order = _resolve_reposition_order(
+            after_order=after_task.order if after_task is not None else None,
+            before_order=before_task.order if before_task is not None else None,
+        )
+        if new_order is None:
+            raise ValidationError("Unable to compute subtask order")
+
+    task.order = new_order
+    task.touch(now=now)
+    parent.touch(now=now)
+    root.touch(now=now)
+    repo.upsert_task(root)
+    return task
+
+
 def cycle_task_repeat(
     repo: TaskRepository,
     task_id: UUID,
