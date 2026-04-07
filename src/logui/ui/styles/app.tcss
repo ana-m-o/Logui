@@ -295,6 +295,71 @@ ListView {
         height: auto;
     }
 
+    .task_status_todo {
+        .task_status,
+        .task_title {
+            color: $text;
+        }
+    }
+
+    .task_status_in_progress {
+        .task_status {
+            color: #0084ff;
+            text-style: bold;
+        }
+
+        .task_title {
+            color: $text;
+            text-style: bold;
+        }
+    }
+
+    .task_status_postponed {
+        .task_status,
+        .task_title {
+            color: $text 35%;
+        }
+    }
+
+    .task_status_in_review {
+        .task_status {
+            color: #41cc06;
+        }
+
+        .task_title {
+            color: $text;
+        }
+    }
+
+    .task_status_done {
+        .task_status{
+            color: #41cc06;
+        }
+        .task_title {
+            color: $text;
+        }
+    }
+
+    .task_is_priority {
+        .task_status {
+            color: $error;
+            text-style: bold;
+        }
+    }
+
+    .task_due_today_or_past {
+        .task_priority,
+        .task_status,
+        .task_title,
+        .task_repeat,
+        .task_due,
+        .task_link,
+        .task_row_notes {
+            color: $error;
+            text-style: bold;
+        }
+    }
+
     .task_status {
         width: auto;
         margin-right: 1;

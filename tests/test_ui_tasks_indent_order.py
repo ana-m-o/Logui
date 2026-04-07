@@ -9,7 +9,6 @@ from logui.domain.entities.task import Task
 from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
 from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
 from logui.ui.screens.tasks import TasksPane
-from logui.usecases.tasks import CreateTaskInput, create_task
 
 
 class TasksOrderTestApp(App[None]):
@@ -89,10 +88,16 @@ def test_indent_visual_order(tmp_path) -> None:
     db.init_schema()
     repo = SqliteTaskRepository(db)
 
-    # Create three tasks
-    task1 = create_task(repo, CreateTaskInput(title="Task1"))
-    task2 = create_task(repo, CreateTaskInput(title="Task2"))
-    task3 = create_task(repo, CreateTaskInput(title="Task3"))
+    # Sparse orders that simulate gaps left after prior task deletions.
+    t1 = Task.create("Task1", order=5.0)
+    _gap = Task.create("_gap", order=9.0)
+    t2 = Task.create("Task2", order=14.0)
+    t3 = Task.create("Task3", order=20.0)
+    repo.upsert_task(t1)
+    repo.upsert_task(_gap)
+    repo.upsert_task(t2)
+    repo.upsert_task(t3)
+    repo.delete_task(_gap.id)
 
     async def _run() -> None:
         app = TasksOrderTestApp(repo)
@@ -134,18 +139,24 @@ def test_unindent_visual_order(tmp_path) -> None:
     db.init_schema()
     repo = SqliteTaskRepository(db)
 
-    # Create structure: Task1 with SubA and SubB, then Task2
-    task1 = create_task(repo, CreateTaskInput(title="Task1"))
-    task1_obj = repo.get_task(task1.id)
+    # Sparse orders: Task1=#5, Task2=#20 (gap from deleted root at #9).
+    # SubA=#3, SubB=#12 (gap from deleted subtask between them).
+    t1 = Task.create("Task1", order=5.0)
+    repo.upsert_task(t1)
+    task1_obj = repo.get_task(t1.id)
     assert task1_obj is not None
 
-    sub_a = Task.create("SubA", order=0)
-    sub_b = Task.create("SubB", order=1)
+    sub_a = Task.create("SubA", order=3.0)
+    sub_b = Task.create("SubB", order=12.0)
     task1_obj.add_subtask(sub_a)
     task1_obj.add_subtask(sub_b)
     repo.upsert_task(task1_obj)
 
-    task2 = create_task(repo, CreateTaskInput(title="Task2"))
+    _gap_root = Task.create("_gap_root", order=9.0)
+    repo.upsert_task(_gap_root)
+    t2 = Task.create("Task2", order=20.0)
+    repo.upsert_task(t2)
+    repo.delete_task(_gap_root.id)
 
     async def _run() -> None:
         app = TasksOrderTestApp(repo)
@@ -197,11 +208,21 @@ def test_multiple_indent_operations(tmp_path) -> None:
     db.init_schema()
     repo = SqliteTaskRepository(db)
 
-    # Create tasks A, B, C, D
-    task_a = create_task(repo, CreateTaskInput(title="A"))
-    task_b = create_task(repo, CreateTaskInput(title="B"))
-    task_c = create_task(repo, CreateTaskInput(title="C"))
-    task_d = create_task(repo, CreateTaskInput(title="D"))
+    # Sparse orders that simulate gaps left after prior task deletions.
+    ta = Task.create("A", order=5.0)
+    _gap1 = Task.create("_gap1", order=9.0)
+    tb = Task.create("B", order=14.0)
+    _gap2 = Task.create("_gap2", order=17.0)
+    tc = Task.create("C", order=20.0)
+    td = Task.create("D", order=28.0)
+    repo.upsert_task(ta)
+    repo.upsert_task(_gap1)
+    repo.upsert_task(tb)
+    repo.upsert_task(_gap2)
+    repo.upsert_task(tc)
+    repo.upsert_task(td)
+    repo.delete_task(_gap1.id)
+    repo.delete_task(_gap2.id)
 
     async def _run() -> None:
         app = TasksOrderTestApp(repo)
@@ -258,6 +279,66 @@ def test_multiple_indent_operations(tmp_path) -> None:
             data_titles = [row.task.title for row in pane._rows]
             print(f"Final data order: {data_titles}")
             assert data_titles == step2_titles
+
+    import asyncio
+
+    asyncio.run(_run())
+
+
+def test_move_parent_up_keeps_subtasks_below_parent(tmp_path) -> None:
+    """Regression: moving a parent task up must keep its subtasks under it."""
+    db = SQLiteDatabase(tmp_path / "test.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
+
+    # Root gaps: Top=#3, [deleted #8], Parent=#14, Bottom=#22.
+    # Subtask gaps: Child A=#4, [deleted subtask implies gap], Child B=#15.
+    top_t = Task.create("Top", order=3.0)
+    _gap_root = Task.create("_gap_root", order=8.0)
+    parent_t = Task.create("Parent", order=14.0)
+    bottom_t = Task.create("Bottom", order=22.0)
+    repo.upsert_task(top_t)
+    repo.upsert_task(_gap_root)
+    repo.upsert_task(parent_t)
+    repo.upsert_task(bottom_t)
+    repo.delete_task(_gap_root.id)
+
+    parent_obj = repo.get_task(parent_t.id)
+    assert parent_obj is not None
+    parent_obj.add_subtask(Task.create("Child A", order=4.0))
+    parent_obj.add_subtask(Task.create("Child B", order=15.0))
+    repo.upsert_task(parent_obj)
+
+    async def _run() -> None:
+        app = TasksOrderTestApp(repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            tasks = app.query_one("#tasks", TasksPane)
+            lv = tasks.query_one("#tasks_list", ListView)
+
+            initial_titles = get_visible_task_titles(lv)
+            assert initial_titles == ["Top", "Parent", "Child A", "Child B", "Bottom"]
+
+            # Move Parent (index 1) up over Top.
+            lv.index = 1
+            await pilot.pause()
+            await pilot.press("alt+up")
+            await pilot.pause()
+
+            after_titles = get_visible_task_titles(lv)
+            assert after_titles == ["Parent", "Child A", "Child B", "Top", "Bottom"]
+
+            # Children must remain below parent and marked as subtasks.
+            items = list(lv.query(ListItem))
+            assert not items[0].has_class("task_subtask")
+            assert items[1].has_class("task_subtask")
+            assert items[2].has_class("task_subtask")
+
+            # Data model order must match visible order.
+            pane = app.query_one("#tasks", TasksPane)
+            data_titles = [row.task.title for row in pane._rows]
+            assert data_titles == after_titles
 
     import asyncio
 

@@ -4,6 +4,7 @@ import asyncio
 from datetime import date
 
 from textual.app import App, ComposeResult
+from textual.widgets import ListItem, ListView
 from textual.widgets import Checkbox, Input, Static
 
 
@@ -20,6 +21,325 @@ class TasksTestApp(App[None]):
         from logui.ui.screens.tasks import TasksPane
 
         yield TasksPane(self.repo)
+
+
+def test_task_items_get_status_classes_and_update_on_cycle(tmp_path) -> None:
+    from logui.domain.entities.task import Task, TaskStatus
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
+    from logui.ui.screens.tasks import TasksPane
+
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
+    repo.upsert_task(
+        Task.create(
+            "Active task",
+            status=TaskStatus.IN_PROGRESS,
+            priority=True,
+            due_date=date.today(),
+        )
+    )
+    repo.upsert_task(Task.create("Done task", status=TaskStatus.DONE, order=1.0))
+
+    async def _run() -> None:
+        app = TasksTestApp(repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            tasks = app.query_one("#tasks", TasksPane)
+            lv = tasks.query_one("#tasks_list", ListView)
+            items = list(lv.query(ListItem))
+
+            assert items[0].has_class("task_status_in_progress")
+            assert items[0].has_class("task_is_priority")
+            assert items[0].has_class("task_due_today_or_past")
+            assert not items[0].has_class("task_status_done")
+            assert not items[0].has_class("task_done")
+
+            assert items[1].has_class("task_status_done")
+            assert items[1].has_class("task_done")
+            assert not items[1].has_class("task_is_priority")
+            assert not items[1].has_class("task_due_today_or_past")
+
+            tasks.action_toggle_priority()
+            await pilot.pause()
+
+            toggled_items = list(lv.query(ListItem))
+            assert not toggled_items[0].has_class("task_is_priority")
+
+            lv.index = 0
+            tasks.action_cycle_status()
+            await pilot.pause()
+
+            updated_items = list(lv.query(ListItem))
+            assert updated_items[0].has_class("task_status_postponed")
+            assert not updated_items[0].has_class("task_status_in_progress")
+            assert not updated_items[0].has_class("task_done")
+
+    asyncio.run(_run())
+
+
+def test_reorder_tasks_with_sparse_order_numbers_after_delete(tmp_path) -> None:
+    from logui.domain.entities.task import Task
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
+    from logui.ui.screens.tasks import TasksPane
+
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
+
+    # Simulate natural gaps caused by deleting tasks.
+    t1 = Task.create("task 1", order=5.0)
+    removed = Task.create("removed", order=9.0)
+    t2 = Task.create("task 2", order=14.0)
+    t3 = Task.create("task 3", order=20.0)
+    repo.upsert_task(t1)
+    repo.upsert_task(removed)
+    repo.upsert_task(t2)
+    repo.upsert_task(t3)
+    assert repo.delete_task(removed.id)
+
+    async def _run() -> None:
+        app = TasksTestApp(repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            tasks = app.query_one("#tasks", TasksPane)
+            lv = tasks.query_one("#tasks_list", ListView)
+
+            items = list(lv.query(ListItem))
+            initial_titles = [
+                str(item.query_one(".task_title", Static).render()).strip() for item in items
+            ]
+            assert initial_titles == ["task 1", "task 2", "task 3"]
+
+            # Move middle task up: insert before task 1 using available gap.
+            lv.index = 1
+            tasks.action_move_up()
+            await pilot.pause()
+
+            items = list(lv.query(ListItem))
+            after_up_titles = [
+                str(item.query_one(".task_title", Static).render()).strip() for item in items
+            ]
+            assert after_up_titles == ["task 2", "task 1", "task 3"]
+
+            # Move selected task (task 2) down: insert between task 1 and task 3.
+            tasks.action_move_down()
+            await pilot.pause()
+
+            items = list(lv.query(ListItem))
+            after_down_titles = [
+                str(item.query_one(".task_title", Static).render()).strip() for item in items
+            ]
+            assert after_down_titles == ["task 1", "task 2", "task 3"]
+
+            roots = sorted(repo.list_tasks(), key=lambda t: (t.order, t.created_at))
+            assert [t.title for t in roots] == ["task 1", "task 2", "task 3"]
+            assert [t.order for t in roots] == [5.0, 12.5, 20.0]
+
+    asyncio.run(_run())
+
+
+def test_reorder_tasks_with_sparse_order_numbers_with_hidden_completed(tmp_path) -> None:
+    from datetime import timedelta, timezone
+
+    from logui.domain.entities.task import Task, TaskStatus, utc_now
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
+    from logui.ui.screens.tasks import TasksPane
+
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
+
+    # Simulate natural gaps caused by completed tasks hidden from the list.
+    t1 = Task.create("task 1", order=5.0)
+    hidden_done = Task.create("done hidden", order=9.0, status=TaskStatus.DONE)
+    t2 = Task.create("task 2", order=14.0)
+    t3 = Task.create("task 3", order=20.0)
+
+    yesterday = utc_now().astimezone(timezone.utc) - timedelta(days=1)
+    hidden_done.completed_at = yesterday
+    hidden_done.updated_at = yesterday
+
+    repo.upsert_task(t1)
+    repo.upsert_task(hidden_done)
+    repo.upsert_task(t2)
+    repo.upsert_task(t3)
+
+    async def _run() -> None:
+        app = TasksTestApp(repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            tasks = app.query_one("#tasks", TasksPane)
+            lv = tasks.query_one("#tasks_list", ListView)
+
+            items = list(lv.query(ListItem))
+            initial_titles = [
+                str(item.query_one(".task_title", Static).render()).strip() for item in items
+            ]
+            assert initial_titles == ["task 1", "task 2", "task 3"]
+
+            lv.index = 1
+            tasks.action_move_up()
+            await pilot.pause()
+
+            items = list(lv.query(ListItem))
+            after_up_titles = [
+                str(item.query_one(".task_title", Static).render()).strip() for item in items
+            ]
+            assert after_up_titles == ["task 2", "task 1", "task 3"]
+
+            tasks.action_move_down()
+            await pilot.pause()
+
+            items = list(lv.query(ListItem))
+            after_down_titles = [
+                str(item.query_one(".task_title", Static).render()).strip() for item in items
+            ]
+
+            assert after_down_titles == ["task 1", "task 2", "task 3"]
+
+    asyncio.run(_run())
+
+
+def test_move_down_skips_hidden_gap_and_persists_at_end_after_restart(tmp_path) -> None:
+    from datetime import timedelta, timezone
+
+    from logui.domain.entities.task import Task, TaskStatus, utc_now
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
+    from logui.ui.screens.tasks import TasksPane
+
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
+
+    top = Task.create("top", order=5.0)
+    selected = Task.create("selected", order=14.0)
+    hidden_done = Task.create("hidden", order=15.0, status=TaskStatus.DONE)
+    target = Task.create("target", order=20.0)
+
+    yesterday = utc_now().astimezone(timezone.utc) - timedelta(days=1)
+    hidden_done.completed_at = yesterday
+    hidden_done.updated_at = yesterday
+
+    repo.upsert_task(top)
+    repo.upsert_task(selected)
+    repo.upsert_task(hidden_done)
+    repo.upsert_task(target)
+
+    async def _run() -> None:
+        app = TasksTestApp(repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            tasks = app.query_one("#tasks", TasksPane)
+            lv = tasks.query_one("#tasks_list", ListView)
+
+            initial_titles = [
+                str(item.query_one(".task_title", Static).render()).strip()
+                for item in lv.query(ListItem)
+            ]
+            assert initial_titles == ["top", "selected", "target"]
+
+            lv.index = 1
+            tasks.action_move_down()
+            await pilot.pause()
+
+            visible_titles = [
+                str(item.query_one(".task_title", Static).render()).strip()
+                for item in lv.query(ListItem)
+            ]
+            assert visible_titles == ["top", "target", "selected"]
+
+            persisted = {t.title: t.order for t in repo.list_tasks()}
+            assert persisted["selected"] == 21.0
+            assert persisted["target"] == 20.0
+            assert persisted["hidden"] == 15.0
+
+        app2 = TasksTestApp(repo)
+        async with app2.run_test() as pilot2:
+            await pilot2.pause()
+            tasks2 = app2.query_one("#tasks", TasksPane)
+            lv2 = tasks2.query_one("#tasks_list", ListView)
+            restart_titles = [
+                str(item.query_one(".task_title", Static).render()).strip()
+                for item in lv2.query(ListItem)
+            ]
+            assert restart_titles == ["top", "target", "selected"]
+
+    asyncio.run(_run())
+
+
+def test_move_down_between_visible_tasks_uses_fractional_order_after_restart(tmp_path) -> None:
+    from datetime import timedelta, timezone
+
+    from logui.domain.entities.task import Task, TaskStatus, utc_now
+    from logui.infrastructure.persistence.sqlite_database import SQLiteDatabase
+    from logui.infrastructure.repositories.tasks_repo_sqlite import SqliteTaskRepository
+    from logui.ui.screens.tasks import TasksPane
+
+    db = SQLiteDatabase(tmp_path / "logui.db")
+    db.init_schema()
+    repo = SqliteTaskRepository(db)
+
+    top = Task.create("top", order=5.0)
+    selected = Task.create("selected", order=14.0)
+    hidden_done = Task.create("hidden", order=15.0, status=TaskStatus.DONE)
+    target = Task.create("target", order=20.0)
+    tail = Task.create("tail", order=21.0)
+
+    yesterday = utc_now().astimezone(timezone.utc) - timedelta(days=1)
+    hidden_done.completed_at = yesterday
+    hidden_done.updated_at = yesterday
+
+    repo.upsert_task(top)
+    repo.upsert_task(selected)
+    repo.upsert_task(hidden_done)
+    repo.upsert_task(target)
+    repo.upsert_task(tail)
+
+    async def _run() -> None:
+        app = TasksTestApp(repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            tasks = app.query_one("#tasks", TasksPane)
+            lv = tasks.query_one("#tasks_list", ListView)
+
+            lv.index = 1
+            tasks.action_move_down()
+            await pilot.pause()
+
+            visible_titles = [
+                str(item.query_one(".task_title", Static).render()).strip()
+                for item in lv.query(ListItem)
+            ]
+            assert visible_titles == ["top", "target", "selected", "tail"]
+
+            persisted = {t.title: t.order for t in repo.list_tasks()}
+            assert persisted["selected"] == 20.5
+            assert persisted["target"] == 20.0
+            assert persisted["tail"] == 21.0
+            assert persisted["hidden"] == 15.0
+
+        app2 = TasksTestApp(repo)
+        async with app2.run_test() as pilot2:
+            await pilot2.pause()
+            tasks2 = app2.query_one("#tasks", TasksPane)
+            lv2 = tasks2.query_one("#tasks_list", ListView)
+            restart_titles = [
+                str(item.query_one(".task_title", Static).render()).strip()
+                for item in lv2.query(ListItem)
+            ]
+            assert restart_titles == ["top", "target", "selected", "tail"]
+
+    asyncio.run(_run())
 
 
 def test_tasks_crud_and_actions(tmp_path) -> None:
